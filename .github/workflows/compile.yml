@@ -24,26 +24,28 @@ jobs:
       - name: Compile
         shell: bash
         run: |
-          # Ищем главный .pwn файл
-          MAIN_PWN=$(find "${{ inputs.source_dir }}" -name "*.pwn" | head -n 1)
+          # 1. Ищем главный .pwn файл (исключаем папку include)
+          MAIN_PWN=$(find "${{ inputs.source_dir }}" -type f -name "*.pwn" | head -n 1)
+          
           if [ -z "$MAIN_PWN" ]; then
-            echo "::error::Файл .pwn не найден"
+            echo "::error::Файл .pwn не найден в папке ${{ inputs.source_dir }}"
+            # Выводим список всех файлов, чтобы понять, что прислал пользователь
+            echo "Содержимое папки:"
+            ls -R "${{ inputs.source_dir }}"
             exit 1
           fi
 
-          # Ищем ВСЕ папки с инклюдами внутри папки пользователя
-          # И добавляем корень репозитория (где лежат твои базовые инклюды)
-          INC_FLAGS="-i."
-          
-          # Находим все файлы .inc и берем их папки
-          INC_DIRS=$(find "${{ inputs.source_dir }}" -name "*.inc" -printf '%h\n' | sort -u)
-          for dir in $INC_DIRS; do
-            INC_FLAGS="$INC_FLAGS -i$dir"
-          done
+          echo "Компилируем файл: $MAIN_PWN"
 
-          echo "Компилируем: $MAIN_PWN"
-          echo "Флаги инклюдов: $INC_FLAGS"
+          # 2. Ищем папку include
+          USER_INC_DIR=$(find "${{ inputs.source_dir }}" -type d -name "include" | head -n 1)
+          INC_FLAGS=""
+          if [ -n "$USER_INC_DIR" ]; then
+            INC_FLAGS="-i$USER_INC_DIR"
+            echo "Используем инклюды из: $USER_INC_DIR"
+          fi
 
+          # 3. Запускаем компиляцию СТРОГО указанного файла
           pawncc "$MAIN_PWN" $INC_FLAGS -ooutput.amx
 
       - name: Upload artifact
@@ -53,5 +55,3 @@ jobs:
           path: output.amx
           if-no-files-found: error
           retention-days: 1
-
-          
