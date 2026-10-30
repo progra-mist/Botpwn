@@ -4,11 +4,11 @@ on:
   workflow_dispatch:
     inputs:
       request_id:
-        description: "ID запроса бота"
+        description: "ID запроса"
         required: true
         type: string
       source_dir:
-        description: "Папка с исходниками (куда бот загрузил файлы)"
+        description: "Папка с исходниками"
         required: true
         type: string
 
@@ -24,27 +24,26 @@ jobs:
       - name: Compile
         shell: bash
         run: |
-          # Ищем главный .pwn файл в папке, которую указал бот
+          # Ищем главный .pwn файл
           MAIN_PWN=$(find "${{ inputs.source_dir }}" -name "*.pwn" | head -n 1)
-          
           if [ -z "$MAIN_PWN" ]; then
-            echo "::error::Файл .pwn не найден в папке ${{ inputs.source_dir }}"
+            echo "::error::Файл .pwn не найден"
             exit 1
           fi
 
-          # Ищем папку с инклюдами, которую загрузил пользователь
-          USER_INC_DIR=$(find "${{ inputs.source_dir }}" -type d -name "include" | head -n 1)
+          # Ищем ВСЕ папки с инклюдами внутри папки пользователя
+          # И добавляем корень репозитория (где лежат твои базовые инклюды)
+          INC_FLAGS="-i."
           
-          # Формируем путь к инклюдам (базовые + пользовательские)
-          INC_FLAGS="-i./include"
-          if [ -n "$USER_INC_DIR" ]; then
-            INC_FLAGS="$INC_FLAGS -i$USER_INC_DIR"
-          fi
+          # Находим все файлы .inc и берем их папки
+          INC_DIRS=$(find "${{ inputs.source_dir }}" -name "*.inc" -printf '%h\n' | sort -u)
+          for dir in $INC_DIRS; do
+            INC_FLAGS="$INC_FLAGS -i$dir"
+          done
 
           echo "Компилируем: $MAIN_PWN"
           echo "Флаги инклюдов: $INC_FLAGS"
 
-          # Запускаем компиляцию
           pawncc "$MAIN_PWN" $INC_FLAGS -ooutput.amx
 
       - name: Upload artifact
@@ -54,3 +53,5 @@ jobs:
           path: output.amx
           if-no-files-found: error
           retention-days: 1
+
+          
