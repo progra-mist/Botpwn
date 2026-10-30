@@ -7,8 +7,8 @@ on:
         description: "ID запроса бота"
         required: true
         type: string
-      code:
-        description: "Исходный код"
+      source_dir:
+        description: "Папка с исходниками (куда бот загрузил файлы)"
         required: true
         type: string
 
@@ -18,24 +18,39 @@ jobs:
     container:
       image: michaelace/pawncc:3.10.11-linux
     steps:
-      - name: Prepare source
-        shell: bash
-        run: |
-          mkdir -p output
-          cat << 'EOF' > script.pwn
-          ${{ inputs.code }}
-          EOF
+      - name: Checkout repository
+        uses: actions/checkout@v4
 
       - name: Compile
         shell: bash
         run: |
-          # В этом образе pawncc уже доступен как команда
-          pawncc script.pwn -oscript.amx
+          # Ищем главный .pwn файл в папке, которую указал бот
+          MAIN_PWN=$(find "${{ inputs.source_dir }}" -name "*.pwn" | head -n 1)
+          
+          if [ -z "$MAIN_PWN" ]; then
+            echo "::error::Файл .pwn не найден в папке ${{ inputs.source_dir }}"
+            exit 1
+          fi
+
+          # Ищем папку с инклюдами, которую загрузил пользователь
+          USER_INC_DIR=$(find "${{ inputs.source_dir }}" -type d -name "include" | head -n 1)
+          
+          # Формируем путь к инклюдам (базовые + пользовательские)
+          INC_FLAGS="-i./include"
+          if [ -n "$USER_INC_DIR" ]; then
+            INC_FLAGS="$INC_FLAGS -i$USER_INC_DIR"
+          fi
+
+          echo "Компилируем: $MAIN_PWN"
+          echo "Флаги инклюдов: $INC_FLAGS"
+
+          # Запускаем компиляцию
+          pawncc "$MAIN_PWN" $INC_FLAGS -ooutput.amx
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
           name: pawn-${{ inputs.request_id }}
-          path: script.amx
+          path: output.amx
           if-no-files-found: error
-          retention-days: 1      
+          retention-days: 1
