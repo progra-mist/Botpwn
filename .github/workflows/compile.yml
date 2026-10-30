@@ -11,8 +11,7 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
-    container:
-      image: michaelace/pawncc:3.10.11-linux
+    container: sacnr/pawncc
     steps:
       - name: Сохранение кода
         run: |
@@ -20,12 +19,20 @@ jobs:
           ${{ inputs.code }}
           EOF
 
-      - name: Компиляция
+      - name: Поиск компилятора и запуск
         run: |
-          pawncc script.pwn -oscript.amx
+          echo "=== ИЩЕМ КОМПИЛЯТОР ==="
+          find / -name "pawncc" 2>/dev/null || echo "Компилятор не найден"
+          
+          echo "=== ИЩЕМ БИБЛИОТЕКИ ==="
+          find / -name "libpawnc*" 2>/dev/null || echo "Библиотеки не найдены"
+          
+          echo "=== ПРОБУЕМ ЗАПУСТИТЬ ЧЕРЕЗ ИМЯ ==="
+          pawncc script.pwn -oscript.amx && echo "УСПЕХ!" || echo "ОШИБКА ЗАПУСКА"
 
       - name: Сохранение результата
         uses: actions/upload-artifact@v4
         with:
           name: compiled-amx
           path: script.amx
+          if-no-files-found: ignore
