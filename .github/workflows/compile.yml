@@ -4,26 +4,32 @@ on:
   workflow_dispatch:
     inputs:
       code:
-        description: 'Pawn source code'
+        description: 'Исходный код'
         required: true
         type: string
 
 jobs:
   build:
     runs-on: ubuntu-latest
-    container: sacnr/pawncc
     steps:
-      - name: Save code to file
+      - name: Установка компилятора
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y wget
+          wget https://github.com/pawn-lang/compiler/releases/download/v3.10.10/pawnc-3.10.10-linux.tar.gz
+          tar -xzf pawnc-3.10.10-linux.tar.gz
+
+      - name: Сохранение кода
         run: |
           cat << 'EOF' > script.pwn
           ${{ inputs.code }}
           EOF
 
-      - name: Compile with pawncc
+      - name: Компиляция
         run: |
-          /pawnc/bin/pawncc script.pwn -i/pawnc/include -oscript.amx
+          ./pawnc-3.10.10-linux/bin/pawncc script.pwn -i./pawnc-3.10.10-linux/include -oscript.amx
 
-      - name: Upload AMX
+      - name: Сохранение результата
         uses: actions/upload-artifact@v4
         with:
           name: compiled-amx
