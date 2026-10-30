@@ -1,0 +1,30 @@
+name: Compile Pawn
+
+on:
+  workflow_dispatch:
+    inputs:
+      code:
+        description: 'Pawn source code'
+        required: true
+        type: string
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    container: sacnr/pawncc
+    steps:
+      - name: Save code to file
+        run: |
+          cat << 'EOF' > script.pwn
+          ${{ inputs.code }}
+          EOF
+
+      - name: Compile with pawncc
+        run: |
+          /pawnc/bin/pawncc script.pwn -i/pawnc/include -oscript.amx
+
+      - name: Upload AMX
+        uses: actions/upload-artifact@v4
+        with:
+          name: compiled-amx
+          path: script.amx
