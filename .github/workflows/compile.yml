@@ -12,14 +12,10 @@ jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-      - name: Скачивание и распаковка
+      - name: Скачивание компилятора
         run: |
           wget https://github.com/pawn-lang/compiler/releases/download/v3.10.10/pawnc-3.10.10-linux.tar.gz
           tar -xzf pawnc-3.10.10-linux.tar.gz
-          echo "--- Содержимое папки: ---"
-          ls -la
-          echo "--- Ищем pawncc: ---"
-          find . -name "pawncc"
 
       - name: Сохранение кода
         run: |
@@ -29,11 +25,12 @@ jobs:
 
       - name: Компиляция
         run: |
-          # Ищем файл pawncc и даем ему права на запуск
-          find . -name "pawncc" -exec chmod +x {} \;
-          # Запускаем компилятор с указанием пути к библиотекам
-          export LD_LIBRARY_PATH=$(dirname $(find . -name "libpawnc.so" | head -n 1)):$LD_LIBRARY_PATH
-          $(find . -name "pawncc" | head -n 1) script.pwn -i$(dirname $(find . -name "pawncc" | head -n 1))/../include -oscript.amx
+          # Делаем файл pawncc исполняемым
+          chmod +x pawnc-3.10.10-linux/bin/pawncc
+          # Указываем, где лежит библиотека libpawnc.so
+          export LD_LIBRARY_PATH=./pawnc-3.10.10-linux/lib:$LD_LIBRARY_PATH
+          # Запускаем
+          ./pawnc-3.10.10-linux/bin/pawncc script.pwn -oscript.amx
 
       - name: Сохранение результата
         uses: actions/upload-artifact@v4
