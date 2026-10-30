@@ -6,18 +6,14 @@ import io
 import base64
 import asyncio
 from aiogram import Bot, Dispatcher, F
-from aiogram.types import Message, FSInputFile
+from aiogram.types import Message, FSInputFile, ReplyKeyboardMarkup, KeyboardButton
 from aiogram.filters import CommandStart
 from dotenv import load_dotenv
 
 load_dotenv()
 
-# --- НАСТРОЙКИ ---
-# Токены берутся из секретов GitHub (мы их туда добавили)
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 GITHUB_TOKEN = os.getenv("GITHUB_TOKEN")
-
-# ВАЖНО: Укажи здесь свой ник и название репозитория!
 REPO = "progra-mist/Botpwn" 
 
 bot = Bot(token=BOT_TOKEN)
@@ -28,10 +24,44 @@ headers = {
     "Accept": "application/vnd.github+json"
 }
 
+# --- СОЗДАЕМ КРАСИВЫЕ КНОПКИ ---
+def get_main_keyboard():
+    kb = [
+        [KeyboardButton(text="📂 Отправить мод ZIP")],
+        [KeyboardButton(text="⚙️ Инструменты"), KeyboardButton(text="❓ Как пользоваться")]
+    ]
+    return ReplyKeyboardMarkup(keyboard=kb, resize_keyboard=True)
+
 @dp.message(CommandStart())
 async def start(msg: Message):
-    await msg.answer("Привет! Я бот-компилятор Pawn.\nСкинь мне ZIP-архив с твоим модом (внутри должен быть .pwn и папка с инклюдами).")
+    await msg.answer(
+        "Привет! Я бот-компилятор Pawn.\n"
+        "Нажми на кнопку ниже, чтобы отправить архив, или просто скинь мне ZIP-файл.",
+        reply_markup=get_main_keyboard()
+    )
 
+@dp.message(F.text == "❓ Как пользоваться")
+async def how_to_use(msg: Message):
+    await msg.answer(
+        "1. Заархивируй папку с модом в ZIP.\n"
+        "2. Внутри обязательно должен быть файл `.pwn` и папка `include` (если нужны свои инклюды).\n"
+        "3. Отправь архив сюда.\n"
+        "4. Подожди, пока я скомпилирую, и забери готовый `.amx`!"
+    )
+
+@dp.message(F.text == "⚙️ Инструменты")
+async def tools(msg: Message):
+    await msg.answer(
+        "Компилятор: Pawn 3.10.10\n"
+        "Сервер: GitHub Actions\n"
+        "Лимит: Бесплатно (безлимит на базовые функции)"
+    )
+
+@dp.message(F.text == "📂 Отправить мод ZIP")
+async def send_zip_msg(msg: Message):
+    await msg.answer("Жду твой ZIP-архив! 📦")
+
+# --- ОБРАБОТКА САМОГО АРХИВА ---
 @dp.message(F.document)
 async def handle_zip(msg: Message):
     if not msg.document.file_name.endswith(".zip"):
@@ -41,18 +71,15 @@ async def handle_zip(msg: Message):
     request_id = str(int(time.time()))
     temp_dir = f"temp_compile/{request_id}"
     
-    # Скачиваем ZIP из ТГ
     file = await bot.get_file(msg.document.file_id)
     downloaded = await bot.download_file(file.file_path)
     zip_data = downloaded.read()
     
-    # Распаковываем и загружаем на GitHub
+    # Загружаем файлы на GitHub
     with zipfile.ZipFile(io.BytesIO(zip_data)) as z:
         for file_info in z.infolist():
             if file_info.is_dir():
                 continue
-            
-            # Загружаем только .pwn и .inc
             if not (file_info.filename.endswith(".pwn") or file_info.filename.endswith(".inc")):
                 continue
                 
@@ -66,7 +93,6 @@ async def handle_zip(msg: Message):
     
     await msg.answer("🚀 Файлы загружены. Запускаю компиляцию...")
     
-    # Запускаем workflow
     wf_url = f"https://api.github.com/repos/{REPO}/actions/workflows/compile.yml/dispatches"
     requests.post(wf_url, headers=headers, json={
         "ref": "main",
@@ -81,7 +107,6 @@ async def handle_zip(msg: Message):
         
         if run and run["status"] == "completed":
             if run["conclusion"] == "success":
-                # Скачиваем артефакт
                 arts = requests.get(run["artifacts_url"], headers=headers).json()
                 if not arts["artifacts"]:
                     return await msg.answer("❌ Артефакт не найден.")
@@ -89,7 +114,6 @@ async def handle_zip(msg: Message):
                 dl_url = arts["artifacts"][0]["archive_download_url"]
                 zip_resp = requests.get(dl_url, headers=headers).content
                 
-                # Достаем .amx
                 with zipfile.ZipFile(io.BytesIO(zip_resp)) as z:
                     z.extractall("temp_out")
                     amx_file = [f for f in os.listdir("temp_out") if f.endswith(".amx")][0]
@@ -99,7 +123,7 @@ async def handle_zip(msg: Message):
                 os.rmdir("temp_out")
                 return
             else:
-                return await msg.answer("❌ Ошибка компиляции. Проверь код и инклюды.")
+                return await msg.answer("❌ Ошибка компиляции. Проверь код.")
     
     await msg.answer("⌛ GitHub слишком долго думает. Попробуй позже.")
 
@@ -107,4 +131,4 @@ async def main():
     await dp.start_polling(bot)
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    await main()
