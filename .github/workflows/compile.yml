@@ -27,7 +27,6 @@ jobs:
           set -euo pipefail
           mkdir -p "$RUNNER_TEMP/pawn"
           
-          # Скачиваем официальный компилятор напрямую с GitHub
           wget -q https://github.com/pawn-lang/compiler/releases/download/v3.10.10/pawnc-3.10.10-linux.tar.gz -O "$RUNNER_TEMP/pawn/compiler.tar.gz"
           tar -xzf "$RUNNER_TEMP/pawn/compiler.tar.gz" -C "$RUNNER_TEMP/pawn"
 
@@ -36,36 +35,32 @@ jobs:
           chmod +x "$PAWNCC"
 
           echo "PAWNCC=$PAWNCC" >> "$GITHUB_ENV"
-          echo "PAWN_DIR=$(dirname "$PAWNCC")" >> "$GITHUB_ENV"
 
-      - name: Configure libraries and validate compiler
+      - name: Configure libraries
         shell: bash
         run: |
           set -euo pipefail
-          LIB_DIRS="$(find "$RUNNER_TEMP/pawn" -type f -name '*.so*' \
-            -printf '%h\n' | sort -u | paste -sd: - || true)"
-
-          if [ -n "$LIB_DIRS" ]; then
-            echo "LD_LIBRARY_PATH=$LIB_DIRS:${LD_LIBRARY_PATH:-}" >> "$GITHUB_ENV"
-          fi
-
-          echo "Compiler: $PAWNCC"
-          file "$PAWNCC"
           
-          if ldd "$PAWNCC" 2>/dev/null | grep -q "not found"; then
-            echo "::error::У pawncc отсутствуют динамические зависимости."
+          # Ищем библиотеку libpawnc.so в скачанном архиве
+          LIBPAWNC="$(find "$RUNNER_TEMP/pawn" -type f -name 'libpawnc.so*' -print -quit)"
+          
+          if [ -z "$LIBPAWNC" ]; then
+            echo "::error::Библиотека libpawnc.so не найдена в архиве."
             exit 1
           fi
-
-          "$PAWNCC" 2>&1 | head -n 30 || true
+          
+          LIB_DIR="$(dirname "$LIBPAWNC")"
+          echo "Найдена библиотека: $LIBPAWNC"
+          echo "Папка с библиотекой: $LIB_DIR"
+          
+          # Указываем компилятору, где искать библиотеку
+          echo "LD_LIBRARY_PATH=$LIB_DIR:${LD_LIBRARY_PATH:-}" >> "$GITHUB_ENV"
 
       - name: Prepare source
         shell: bash
         run: |
           set -euo pipefail
           mkdir -p input output
-          
-          # Создаем файл из текста, который мы ввели в поле code
           cat << 'EOF' > input/script.pwn
           ${{ inputs.code }}
           EOF
@@ -79,15 +74,15 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          INCLUDE_DIR="$RUNNER_TEMP/pawn/include"
-          if [ ! -d "$INCLUDE_DIR" ]; then
-            INCLUDE_DIR="$(find "$RUNNER_TEMP/pawn" -type d -name include -print -quit)"
-          fi
+          INCLUDE_DIR="$(find "$RUNNER_TEMP/pawn" -type d -name include -print -quit)"
+          
           if [ -z "${INCLUDE_DIR:-}" ] || [ ! -d "$INCLUDE_DIR" ]; then
             echo "::error::В архиве компилятора не найдена папка include."
             exit 1
           fi
 
+          # Запускаем компилятор с указанием пути к библиотеке
+          export LD_LIBRARY_PATH="${LD_LIBRARY_PATH:-}"
           "$PAWNCC" \
             "input/script.pwn" \
             "-i$INCLUDE_DIR" \
