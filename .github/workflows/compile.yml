@@ -12,10 +12,8 @@ jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-      - name: Установка компилятора
+      - name: Скачивание компилятора
         run: |
-          sudo apt-get update
-          sudo apt-get install -y wget
           wget https://github.com/pawn-lang/compiler/releases/download/v3.10.10/pawnc-3.10.10-linux.tar.gz
           tar -xzf pawnc-3.10.10-linux.tar.gz
 
@@ -27,7 +25,8 @@ jobs:
 
       - name: Компиляция
         run: |
-          ./pawnc-3.10.10-linux/bin/pawncc script.pwn -i./pawnc-3.10.10-linux/include -oscript.amx
+          chmod +x pawnc-3.10.10-linux/bin/pawncc
+          pawnc-3.10.10-linux/bin/pawncc script.pwn -i./pawnc-3.10.10-linux/include -oscript.amx
 
       - name: Сохранение результата
         uses: actions/upload-artifact@v4
