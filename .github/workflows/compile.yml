@@ -3,36 +3,115 @@ name: Compile Pawn
 on:
   workflow_dispatch:
     inputs:
-      code:
-        description: 'Исходный код'
+      request_id:
+        description: "ID запроса бота"
         required: true
         type: string
 
+permissions:
+  contents: read
+  actions: read
+
 jobs:
-  build:
-    runs-on: ubuntu-latest
-    container: sacnr/pawncc
+  compile:
+    runs-on: ubuntu-22.04
+
     steps:
-      - name: Сохранение кода
-        run: |
-          cat << 'EOF' > script.pwn
-          ${{ inputs.code }}
-          EOF
+      - name: Checkout repository
+        uses: actions/checkout@v4
 
-      - name: Поиск компилятора и запуск
+      - name: Download compiler release asset
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+        shell: bash
         run: |
-          echo "=== ИЩЕМ КОМПИЛЯТОР ==="
-          find / -name "pawncc" 2>/dev/null || echo "Компилятор не найден"
-          
-          echo "=== ИЩЕМ БИБЛИОТЕКИ ==="
-          find / -name "libpawnc*" 2>/dev/null || echo "Библиотеки не найдены"
-          
-          echo "=== ПРОБУЕМ ЗАПУСТИТЬ ЧЕРЕЗ ИМЯ ==="
-          pawncc script.pwn -oscript.amx && echo "УСПЕХ!" || echo "ОШИБКА ЗАПУСКА"
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/pawn"
 
-      - name: Сохранение результата
+          gh release download \
+            --repo "$REPOSITORY" \
+            --pattern "pawn-compiler-linux.tar.gz" \
+            --dir "$RUNNER_TEMP/pawn"
+
+          test -s "$RUNNER_TEMP/pawn/pawn-compiler-linux.tar.gz"
+          tar -tzf "$RUNNER_TEMP/pawn/pawn-compiler-linux.tar.gz" >/dev/null
+          tar -xzf "$RUNNER_TEMP/pawn/pawn-compiler-linux.tar.gz" \
+            -C "$RUNNER_TEMP/pawn"
+
+          PAWNCC="$(find "$RUNNER_TEMP/pawn" -type f -name pawncc -print -quit)"
+          test -n "$PAWNCC"
+          chmod +x "$PAWNCC"
+
+          echo "PAWNCC=$PAWNCC" >> "$GITHUB_ENV"
+          echo "PAWN_DIR=$(dirname "$PAWNCC")" >> "$GITHUB_ENV"
+
+      - name: Configure libraries and validate compiler
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          LIB_DIRS="$(find "$RUNNER_TEMP/pawn" -type f -name '*.so*' \
+            -printf '%h\n' | sort -u | paste -sd: - || true)"
+
+          if [ -n "$LIB_DIRS" ]; then
+            echo "LD_LIBRARY_PATH=$LIB_DIRS:${LD_LIBRARY_PATH:-}" >> "$GITHUB_ENV"
+          fi
+
+          echo "Compiler: $PAWNCC"
+          file "$PAWNCC"
+          ldd "$PAWNCC" || true
+
+          # Прерываем workflow с диагностикой, если отсутствуют системные зависимости.
+          if ldd "$PAWNCC" 2>/dev/null | grep -q "not found"; then
+            echo "::error::У pawncc отсутствуют динамические зависимости."
+            exit 1
+          fi
+
+          "$PAWNCC" 2>&1 | head -n 30 || true
+
+      - name: Prepare source
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          mkdir -p input output
+
+          # Бот кладёт исходник в input/script.pwn.
+          if [ ! -s input/script.pwn ]; then
+            echo "::error::Файл input/script.pwn отсутствует или пуст."
+            exit 1
+          fi
+
+      - name: Compile script.pwn
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          INCLUDE_DIR="$RUNNER_TEMP/pawn/include"
+          if [ ! -d "$INCLUDE_DIR" ]; then
+            INCLUDE_DIR="$(find "$RUNNER_TEMP/pawn" -type d -name include -print -quit)"
+          fi
+
+          if [ -z "${INCLUDE_DIR:-}" ] || [ ! -d "$INCLUDE_DIR" ]; then
+            echo "::error::В архиве компилятора не найдена папка include."
+            exit 1
+          fi
+
+          "$PAWNCC" \
+            "input/script.pwn" \
+            "-i$INCLUDE_DIR" \
+            "-ooutput/script.amx"
+
+          if [ ! -s output/script.amx ]; then
+            echo "::error::Компилятор завершился без ошибки, но script.amx не создан."
+            exit 1
+          fi
+
+      - name: Upload compiled artifact
         uses: actions/upload-artifact@v4
         with:
-          name: compiled-amx
-          path: script.amx
-          if-no-files-found: ignore
+          name: pawn-${{ inputs.request_id }}
+          path: output/script.amx
+          if-no-files-found: error
+          retention-days: 1
