@@ -99,4 +99,4 @@ jobs:
           name: pawn-${{ inputs.request_id }}
           path: output/script.amx
           if-no-files-found: error
-          retention-days: 1
+          retention-days: 1retention-days: 1
