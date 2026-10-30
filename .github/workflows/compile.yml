@@ -11,12 +11,9 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
+    container:
+      image: michaelace/pawncc:3.10.11-linux
     steps:
-      - name: Скачивание компилятора
-        run: |
-          wget https://github.com/pawn-lang/compiler/releases/download/v3.10.10/pawnc-3.10.10-linux.tar.gz
-          tar -xzf pawnc-3.10.10-linux.tar.gz
-
       - name: Сохранение кода
         run: |
           cat << 'EOF' > script.pwn
@@ -25,12 +22,7 @@ jobs:
 
       - name: Компиляция
         run: |
-          # Делаем файл pawncc исполняемым
-          chmod +x pawnc-3.10.10-linux/bin/pawncc
-          # Указываем, где лежит библиотека libpawnc.so
-          export LD_LIBRARY_PATH=./pawnc-3.10.10-linux/lib:$LD_LIBRARY_PATH
-          # Запускаем
-          ./pawnc-3.10.10-linux/bin/pawncc script.pwn -oscript.amx
+          pawncc script.pwn -oscript.amx
 
       - name: Сохранение результата
         uses: actions/upload-artifact@v4
