@@ -12,8 +12,11 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
+# --- НАСТРОЙКИ ---
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 GITHUB_TOKEN = os.getenv("GITHUB_TOKEN")
+
+# ВАЖНО: Убедись, что тут твой ник и название репозитория!
 REPO = "progra-mist/Botpwn" 
 
 bot = Bot(token=BOT_TOKEN)
@@ -24,7 +27,7 @@ headers = {
     "Accept": "application/vnd.github+json"
 }
 
-# --- СОЗДАЕМ КРАСИВЫЕ КНОПКИ ---
+# --- СОЗДАЕМ КРАСИВЫЕ КНОПКИ (Как в LildrugBOT) ---
 def get_main_keyboard():
     kb = [
         [KeyboardButton(text="📂 Отправить мод ZIP")],
@@ -130,5 +133,6 @@ async def handle_zip(msg: Message):
 async def main():
     await dp.start_polling(bot)
 
+# --- ЗДЕСЬ БЫЛА ОШИБКА, ТЕПЕРЬ ИСПРАВЛЕНО ---
 if __name__ == "__main__":
-    await main()
+    asyncio.run(main())
