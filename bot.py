@@ -107,21 +107,25 @@ async def handle_zip(msg: Message):
                 os.rmdir("temp_out")
                 return
             else:
-                # --- ВОТ ТУТ МЫ ДОБАВИЛИ СКАЧИВАНИЕ ЛОГА ---
+                # --- ИСПРАВЛЕННЫЙ ПОИСК ОШИБОК ---
                 logs_url = f"https://api.github.com/repos/{REPO}/actions/runs/{run['id']}/logs"
                 log_resp = requests.get(logs_url, headers=headers, allow_redirects=True)
                 
                 if log_resp.status_code == 200:
                     with zipfile.ZipFile(io.BytesIO(log_resp.content)) as z:
-                        # Ищем файл лога компиляции
                         log_file = [f for f in z.namelist() if "Compile" in f or "compile" in f][0]
                         log_text = z.read(log_file).decode("utf-8", errors="replace")
                         
-                        # Берем последние 15 строк (самое важное)
                         lines = log_text.splitlines()
-                        last_lines = "\n".join(lines[-15:])
+                        # Ищем только строки с ошибками
+                        error_lines = [line for line in lines if "error" in line.lower() or "warn" in line.lower()]
                         
-                        await msg.answer(f"❌ Ошибка компиляции!\n\n<b>Лог:</b>\n<pre>{last_lines}</pre>", parse_mode="HTML")
+                        if error_lines:
+                            clean_errors = "\n".join(error_lines[:10]) # Берем первые 10 ошибок
+                            await msg.answer(f"❌ Ошибка компиляции!\n\n<b>Лог:</b>\n<pre>{clean_errors}</pre>", parse_mode="HTML")
+                        else:
+                            last_lines = "\n".join(lines[-15:])
+                            await msg.answer(f"❌ Ошибка компиляции!\n\n<b>Лог:</b>\n<pre>{last_lines}</pre>", parse_mode="HTML")
                 else:
                     await msg.answer("❌ Ошибка компиляции. Не удалось скачать лог.")
                 return
@@ -133,4 +137,3 @@ async def main():
 
 if __name__ == "__main__":
     asyncio.run(main())
-    
