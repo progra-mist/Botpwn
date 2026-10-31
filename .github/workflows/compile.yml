@@ -1,4 +1,4 @@
-name: Compile Pawn (Windows)
+name: Compile Pawn windows
 
 on:
   workflow_dispatch:
@@ -14,52 +14,35 @@ on:
 
 jobs:
   compile:
-    # ГЛАВНОЕ ИЗМЕНЕНИЕ: запускаем на Windows
-    runs-on: windows-latest 
-    
+    runs-on: windows-latest
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Download Pawn Compiler (Windows)
+      - name: Download Pawn Compiler
         shell: pwsh
         run: |
-          # Скачиваем Windows-версию компилятора (pawncc.exe)
           Invoke-WebRequest -Uri "https://github.com/pawn-lang/compiler/releases/download/v3.10.10/pawnc-3.10.10-windows.zip" -OutFile "pawnc.zip"
-          
-          # Распаковываем
           Expand-Archive -Path "pawnc.zip" -DestinationPath "pawnc"
-          
-          # Ищем файл pawncc.exe и добавляем его папку в PATH
           $pawnccPath = Get-ChildItem -Path "pawnc" -Filter "pawncc.exe" -Recurse | Select-Object -First 1
           $pawnccDir = $pawnccPath.DirectoryName
           echo "$pawnccDir" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
-          
           Write-Host "Компилятор найден в: $pawnccDir"
 
       - name: Compile
         shell: pwsh
         run: |
-          # 1. Ищем главный .pwn файл (исключаем папку include)
           $mainPwn = Get-ChildItem -Path "${{ inputs.source_dir }}" -Filter "*.pwn" -Recurse | Where-Object { $_.FullName -notmatch '\\include\\' } | Select-Object -First 1
-          
           if (-not $mainPwn) {
             Write-Error "Главный файл .pwn не найден"
             exit 1
           }
-
           Write-Host "=== КОМПИЛИРУЕМ: $($mainPwn.FullName) ==="
-
-          # 2. Ищем ВСЕ папки в архиве (чтобы найти и include, и файлы .lang)
           $allDirs = Get-ChildItem -Path "${{ inputs.source_dir }}" -Directory -Recurse | Select-Object -ExpandProperty FullName
-          
-          # Формируем строку с путями для компилятора
           $incFlags = ""
           foreach ($dir in $allDirs) {
             $incFlags += " -i`"$dir`""
           }
-
-          # 3. Запускаем компиляцию
           pawncc $mainPwn.FullName $incFlags -ooutput.amx
 
       - name: Upload artifact
