@@ -508,19 +508,20 @@ async def activate_promo(msg: Message, state: FSMContext):
         await msg.answer("❌ Уже активирован.")
         await state.clear()
         return
-    if days == -1:
-    set_premium(user_id, 9999)
-    await msg.answer("🎉 Пожизненный Премиум!")
-else:
-    set_premium(user_id, days)
-    await msg.answer(f"🎉 Премиум на {days} дн.")
-used_list.append(str(user_id))
-new_used = ",".join(used_list)
-c.execute("UPDATE promocodes SET used_by = ? WHERE code = ?", (new_used, code))
-conn.commit()
-conn.close()
-upload_db()
-await state.clear()
+            if days == -1:
+            set_premium(user_id, 9999)
+            await msg.answer("🎉 Пожизненный Премиум!")
+        else:
+            set_premium(user_id, days)
+            await msg.answer(f"🎉 Премиум на {days} дн.")
+        used_list.append(str(user_id))
+        new_used = ",".join(used_list)
+        c.execute("UPDATE promocodes SET used_by = ? WHERE code = ?", (new_used, code))
+        conn.commit()
+        conn.close()
+        upload_db()
+        await state.clear()
+
 @dp.callback_query(F.data == "admin_users")
 async def admin_users_list(callback: CallbackQuery):
     if not is_admin(callback.from_user.id): return
