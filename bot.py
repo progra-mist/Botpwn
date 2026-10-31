@@ -619,7 +619,7 @@ async def handle_zip(msg: Message):
  requests.post(wf_url, headers=gh_headers, json={"ref": "main", "inputs": {"request_id": request_id, "source_dir": temp_dir}})
  if not check_premium(user_id):
   update_user_count(user_id)
- for _ in range(100):
+ for _ in range(200):
   await asyncio.sleep(5)
   runs = requests.get(f"https://api.github.com/repos/{REPO}/actions/runs", headers=gh_headers).json()
   run = next((r for r in runs["workflow_runs"] if r["name"] == "Compile Pawn"), None)
