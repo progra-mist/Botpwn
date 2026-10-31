@@ -5,6 +5,7 @@ import zipfile
 import io
 import base64
 import asyncio
+import uuid
 from aiogram import Bot, Dispatcher, F
 from aiogram.types import Message, FSInputFile, ReplyKeyboardMarkup, KeyboardButton
 from aiogram.filters import CommandStart
@@ -12,12 +13,9 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-# --- НАСТРОЙКИ ---
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 GITHUB_TOKEN = os.getenv("GITHUB_TOKEN")
-DEEPSEEK_API_KEY = os.getenv("DEEPSEEK_API_KEY")
-
-# Твой ID прописан прямо тут, чтобы кнопка 100% появилась
+GIGACHAT_API_KEY = os.getenv("GIGACHAT_API_KEY")
 ADMIN_ID = 8827502259 
 REPO = "progra-mist/Botpwn" 
 
@@ -29,7 +27,6 @@ gh_headers = {
     "Accept": "application/vnd.github+json"
 }
 
-# --- КНОПКИ ---
 def get_main_keyboard(user_id):
     kb = [
         [KeyboardButton(text="🚀 Начать")],
@@ -42,11 +39,7 @@ def get_main_keyboard(user_id):
 
 @dp.message(CommandStart())
 async def start(msg: Message):
-    await msg.answer(
-        "Привет! Я бот-компилятор Pawn.\n"
-        "Скинь мне ZIP с модом для компиляции.",
-        reply_markup=get_main_keyboard(msg.from_user.id)
-    )
+    await msg.answer("Привет! Я бот-компилятор Pawn.\nСкинь мне ZIP с модом для компиляции.", reply_markup=get_main_keyboard(msg.from_user.id))
 
 @dp.message(F.text == "🚀 Начать")
 async def start_btn(msg: Message):
@@ -60,7 +53,38 @@ async def help_msg(msg: Message):
 async def send_zip_msg(msg: Message):
     await msg.answer("Жду твой ZIP-архив! 📦")
 
-# --- ИИ РЕМОНТ ---
+def ask_gigachat(prompt):
+    auth_url = "https://ngw.devices.sberbank.ru:9443/api/v2/oauth"
+    auth_headers = {
+        "Content-Type": "application/x-www-form-urlencoded",
+        "Accept": "application/json",
+        "RqUID": str(uuid.uuid4()),
+        "Authorization": f"Basic {GIGACHAT_API_KEY}"
+    }
+    auth_data = {"scope": "GIGACHAT_API_PERS"}
+    
+    auth_resp = requests.post(auth_url, headers=auth_headers, data=auth_data, verify=False)
+    if auth_resp.status_code != 200:
+        return None, f"Ошибка авторизации GigaChat: {auth_resp.text}"
+    
+    access_token = auth_resp.json().get("access_token")
+    
+    chat_url = "https://api.giga.chat/api/v1/chat/completions"
+    chat_headers = {
+        "Authorization": f"Bearer {access_token}",
+        "Content-Type": "application/json"
+    }
+    chat_data = {
+        "model": "GigaChat",
+        "messages": [{"role": "user", "content": prompt}]
+    }
+    
+    chat_resp = requests.post(chat_url, headers=chat_headers, json=chat_data, verify=False)
+    if chat_resp.status_code != 200:
+        return None, f"Ошибка GigaChat: {chat_resp.text}"
+    
+    return chat_resp.json()["choices"][0]["message"]["content"], None
+
 @dp.message(F.text == "🛠 Починить репозиторий (ИИ)")
 async def fix_repo(msg: Message):
     if msg.from_user.id != ADMIN_ID:
@@ -88,20 +112,16 @@ async def fix_repo(msg: Message):
     yml_resp = requests.get(yml_url, headers=gh_headers).json()
     yml_content = base64.b64decode(yml_resp["content"]).decode("utf-8")
 
-    await msg.answer("🧠 Отправляю данные ИИ (DeepSeek), он думает...")
+    await msg.answer("🧠 Отправляю данные GigaChat, он думает...")
 
-    ai_url = "https://api.deepseek.com/v1/chat/completions"
-    ai_headers = {"Authorization": f"Bearer {DEEPSEEK_API_KEY}", "Content-Type": "application/json"}
     prompt = f"Ты — эксперт по GitHub Actions и Pawn. У меня упала компиляция.\nВот лог ошибки:\n{error_text}\n\nВот текущий файл compile.yml:\n{yml_content}\n\nНапиши ТОЛЬКО исправленный код файла compile.yml. Без лишних слов, без markdown-тегов, просто код."
     
-    ai_data = {"model": "deepseek-chat", "messages": [{"role": "user", "content": prompt}]}
-    ai_resp = requests.post(ai_url, headers=ai_headers, json=ai_data)
+    ai_answer, error = ask_gigachat(prompt)
 
-    if ai_resp.status_code != 200:
-        return await msg.answer(f"❌ Ошибка ИИ: {ai_resp.text}")
+    if error:
+        return await msg.answer(f"❌ {error}")
 
-    new_yml = ai_resp.json()["choices"][0]["message"]["content"]
-    new_yml = new_yml.replace("```yaml", "").replace("```", "").strip()
+    new_yml = ai_answer.replace("```yaml", "").replace("```", "").strip()
 
     await msg.answer(f"📝 **ИИ предлагает код:**\n\n`{new_yml[:1000]}...`\n\nПрименить?", 
                      reply_markup=ReplyKeyboardMarkup(keyboard=[[KeyboardButton(text="✅ Применить")]], resize_keyboard=True))
@@ -128,7 +148,6 @@ async def apply_fix(msg: Message):
     await msg.answer("✅ Файл обновлен! Скинь архив заново для проверки.")
     del pending_fix
 
-# --- КОМПИЛЯЦИЯ ---
 @dp.message(F.document)
 async def handle_zip(msg: Message):
     if not msg.document.file_name.endswith(".zip"):
