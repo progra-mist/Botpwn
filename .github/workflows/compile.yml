@@ -1,4 +1,4 @@
-name: Compile Pawn windows
+name: Compile Pawn
 
 on:
   workflow_dispatch:
@@ -38,12 +38,23 @@ jobs:
             exit 1
           }
           Write-Host "=== КОМПИЛИРУЕМ: $($mainPwn.FullName) ==="
+          
           $allDirs = Get-ChildItem -Path "${{ inputs.source_dir }}" -Directory -Recurse | Select-Object -ExpandProperty FullName
           $incFlags = ""
           foreach ($dir in $allDirs) {
             $incFlags += " -i`"$dir`""
           }
-          pawncc $mainPwn.FullName $incFlags -ooutput.amx
+          
+          # Запускаем компилятор и ловим вывод
+          Write-Host "=== ЗАПУСК PAWNCC ==="
+          $output = & pawncc $mainPwn.FullName $incFlags -ooutput.amx 2>&1
+          Write-Host $output
+          
+          # Проверяем, создался ли файл
+          if (-not (Test-Path "output.amx")) {
+            Write-Error "Файл output.amx не создан. Ошибка компиляции."
+            exit 1
+          }
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
