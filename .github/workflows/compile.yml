@@ -1,4 +1,4 @@
-name: Compile Pawn (Windows)
+name: Compile Pawn
 
 on:
   workflow_dispatch:
@@ -13,87 +13,128 @@ on:
         type: string
 
 jobs:
-  compile-windows:
+  compile:
     runs-on: windows-2022
 
     steps:
-      - name: Checkout repository
+      - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Install VC++ 2010 (x86)
-        shell: powershell
+      - name: Download and Extract Compiler
+        shell: pwsh
         run: |
-          $url = "https://download.microsoft.com/download/1/6/5/165255E7-1014-4D0A-B094-B6A430A6BFFC/vcredist_x86.exe"
-          Invoke-WebRequest -Uri $url -OutFile "vcredist_x86.exe"
-          Start-Process -FilePath ".\vcredist_x86.exe" -ArgumentList "/q", "/norestart" -Wait
-          Remove-Item ".\vcredist_x86.exe"
+          $ErrorActionPreference = 'Stop'
+          $root = $env:GITHUB_WORKSPACE
+          $compilerZip = Join-Path $root 'pawnc.zip'
+          
+          if (-not (Test-Path -LiteralPath $compilerZip)) {
+            $url = "https://github.com/pawn-lang/compiler/releases/download/v3.10.10/pawnc-3.10.10-windows.zip"
+            Invoke-WebRequest -Uri $url -OutFile $compilerZip
+          }
+          
+          $extractDir = Join-Path $root 'pawnc_temp'
+          if (-not (Test-Path -LiteralPath $extractDir)) {
+            Expand-Archive -Path $compilerZip -DestinationPath $extractDir -Force
+          }
+          
+          Write-Host "Компилятор распакован в: $extractDir"
 
-      - name: Download Pawn Compiler (3.10.10)
-        shell: powershell
+      - name: Compile
+        shell: pwsh
         run: |
-          $url = "https://github.com/pawn-lang/compiler/releases/download/v3.10.10/pawnc-3.10.10-windows.zip"
-          Invoke-WebRequest -Uri $url -OutFile "pawnc.zip"
-          Expand-Archive -Path "pawnc.zip" -DestinationPath "C:\pawnc"
-          Remove-Item "pawnc.zip"
+          $ErrorActionPreference = 'Stop'
 
-      - name: Compile Gamemode
-        shell: cmd
-        run: |
-          cd /D "C:\pawnc\bin"
+          $root = $env:GITHUB_WORKSPACE
+          $sourceDir = Join-Path $root '${{ inputs.source_dir }}'
           
-          set MAIN_PWN=
-          for /f "delims=" %%i in ('dir /b /s "${{ inputs.source_dir }}\*.pwn" ^| findstr /v /i "\\include\\"') do (
-            set MAIN_PWN=%%i
-            goto :found
-          )
-          :found
-          if "%MAIN_PWN%"=="" (
-            echo Главный .pwn не найден
-            exit /b 1
-          )
+          if (-not (Test-Path -LiteralPath $sourceDir)) {
+            throw "Не найдена папка с исходниками: $sourceDir"
+          }
           
-          echo === КОМПИЛИРУЕМ: %MAIN_PWN% ===
+          # Ищем главный .pwn (в gamemodes)
+          $sources = @(Get-ChildItem -LiteralPath $sourceDir -Filter '*.pwn' -File -Recurse | Where-Object { $_.FullName -match '[\\/]+gamemodes[\\/]' })
+          if ($sources.Count -eq 0) {
+            throw "Не найден .pwn-файл внутри gamemodes в '$sourceDir'"
+          }
           
-          set INC_DIR=
-          for /f "delims=" %%d in ('dir /b /s /ad "${{ inputs.source_dir }}" ^| findstr /i "\\include$"') do (
-            set INC_DIR=%%d
-            goto :found_inc
-          )
-          :found_inc
-          if "%INC_DIR%"=="" (
-            echo Папка include не найдена
-            exit /b 1
-          )
+          $source = $sources[0].FullName
+          Write-Host "Исходник: $source"
           
-          echo === ИНКЛЮДЫ: %INC_DIR% ===
+          # Ищем pawncc.exe во всех папках
+          $searchRoots = @($root, $env:RUNNER_TEMP) | Where-Object { Test-Path -LiteralPath $_ }
+          $matches = @(
+            foreach ($dir in $searchRoots) {
+              Get-ChildItem -LiteralPath $dir -Filter 'pawncc.exe' -File -Recurse -ErrorAction SilentlyContinue
+            }
+          ) | Sort-Object FullName -Unique
           
-          :: ЖЕСТКО ЗАДАЕМ ИМЯ Crime (pawncc добавит .amx)
-          pawncc.exe "%MAIN_PWN%" ^
-            "-oC:\pawnc\bin\Crime" ^
-            "-i%INC_DIR%" ^
-            "-iC:\pawnc\include" ^
-            -d3 -;+ -(
-            
-          if %ERRORLEVEL% NEQ 0 exit /b %ERRORLEVEL%
+          if ($matches.Count -eq 0) {
+            throw "pawncc.exe не найден."
+          }
           
-          :: Проверяем, что Crime.amx создан
-          if not exist "C:\pawnc\bin\Crime.amx" (
-            echo Файл Crime.amx не создан!
-            exit /b 1
-          )
+          $pawncc = $matches[0].FullName
+          $pawnccDir = $matches[0].DirectoryName
+          Write-Host "Компилятор: $pawncc"
           
-          :: Копируем в папку репозитория как Crime.amx
-          copy "C:\pawnc\bin\Crime.amx" "%GITHUB_WORKSPACE%\Crime.amx"
-          
-          if not exist "%GITHUB_WORKSPACE%\Crime.amx" (
-            echo Файл Crime.amx не скопирован в репозиторий!
-            exit /b 1
+          # Собираем все папки, где есть .inc файлы
+          $includeDirs = @(
+            $sourceDir
+            (Join-Path $sourceDir 'pawno/include')
+            (Join-Path $sourceDir 'include')
+            (Join-Path $sourceDir 'includes')
           )
 
-      - name: Upload AMX Artifact
+          $incFiles = Get-ChildItem -LiteralPath $sourceDir -Filter '*.inc' -File -Recurse |
+            Where-Object {
+              $_.FullName -notmatch '[\\/](\.git|node_modules|bin|obj)[\\/]'
+            }
+
+          $includeDirs += $incFiles | ForEach-Object { $_.DirectoryName }
+
+          # Оставляем только существующие уникальные пути
+          $includeDirs = @(
+            $includeDirs |
+              Where-Object { $_ -and (Test-Path -LiteralPath $_) } |
+              ForEach-Object { (Resolve-Path -LiteralPath $_).Path } |
+              Sort-Object -Unique
+          )
+
+          if ($includeDirs.Count -eq 0) {
+            throw "Не найдено ни одной папки с инклюдами."
+          }
+
+          Write-Host "Найдено папок с инклюдами: $($includeDirs.Count)"
+          
+          $output = Join-Path $root 'Crime.amx'
+          $args = @($source)
+          foreach ($dir in $includeDirs) {
+            $args += "-i$dir"
+          }
+          $args += "-o$output"
+
+          Push-Location $pawnccDir
+          try {
+            & $pawncc @args
+            $code = $LASTEXITCODE
+          }
+          finally {
+            Pop-Location
+          }
+
+          if ($code -ne 0) {
+            throw "Компилятор завершился с кодом $code."
+          }
+
+          if (-not (Test-Path -LiteralPath $output)) {
+            throw "Компилятор не создал файл $output"
+          }
+
+          Write-Host "Готово: $output"
+
+      - name: Upload Crime.amx
         uses: actions/upload-artifact@v4
         with:
-          name: pawn-${{ inputs.request_id }}
-          path: ${{ github.workspace }}/Crime.amx
+          name: Crime-amx
+          path: Crime.amx
           if-no-files-found: error
           retention-days: 1
