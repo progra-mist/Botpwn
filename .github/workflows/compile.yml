@@ -1,4 +1,4 @@
-name: Compile Pawn
+name: Compile Pawn (Windows)
 
 on:
   workflow_dispatch:
@@ -13,27 +13,22 @@ on:
         type: string
 
 jobs:
-  compile:
+  compile-windows:
     runs-on: windows-2022
 
     steps:
-      - name: Checkout
+      - name: Checkout repository
         uses: actions/checkout@v4
 
       - name: Install VC++ Runtimes via Chocolatey
         shell: powershell
         run: |
-          # Ставим Chocolatey (если нет)
           if (-not (Get-Command choco -ErrorAction SilentlyContinue)) {
             Set-ExecutionPolicy Bypass -Scope Process -Force
             [System.Net.ServicePointManager]::SecurityProtocol = [System.Net.ServicePointManager]::SecurityProtocol -bor 3072
             iex ((New-Object System.Net.WebClient).DownloadString('https://community.chocolatey.org/install.ps1'))
           }
-          
-          # Ставим только те пакеты, что нужны для pawncc (2010 и 2015)
-          # Игнорируем ошибки, если какой-то пакет недоступен
           choco install vcredist2010 vcredist2015 --no-progress -y --ignore-checksums --limit-output
-          
           Write-Host "Рантаймы установлены."
 
       - name: Download Pawn Compiler
@@ -60,8 +55,6 @@ jobs:
             exit /b 1
           )
           
-          for %%F in ("%MAIN_PWN%") do set MODNAME=%%~nF
-          
           echo === КОМПИЛИРУЕМ: %MAIN_PWN% ===
           
           set INC_DIR=
@@ -71,16 +64,22 @@ jobs:
           )
           :found_inc
           if "%INC_DIR%"=="" (
-            echo Папка include не найдена
-            exit /b 1
+            echo Папка include не найдена в архиве, используем стандартную...
+            set INC_DIR=C:\pawnc\include
           )
           
           echo === ИНКЛЮДЫ: %INC_DIR% ===
+          
+          :: Копируем стандартные инклюды в папку с компилятором, чтобы он их видел
+          if exist "C:\pawnc\include" (
+            xcopy /E /I /Y "C:\pawnc\include" "C:\pawnc\bin\include" >nul
+          )
           
           pawncc.exe "%MAIN_PWN%" ^
             "-o%GITHUB_WORKSPACE%\Crime" ^
             "-i%INC_DIR%" ^
             "-iC:\pawnc\include" ^
+            "-iC:\pawnc\bin\include" ^
             -d3 -;+ -(
             
           if %ERRORLEVEL% NEQ 0 exit /b %ERRORLEVEL%
@@ -93,7 +92,7 @@ jobs:
       - name: Upload Crime.amx
         uses: actions/upload-artifact@v4
         with:
-          name: Crime-amx
+          name: pawn-${{ inputs.request_id }}
           path: Crime.amx
           if-no-files-found: error
           retention-days: 1
