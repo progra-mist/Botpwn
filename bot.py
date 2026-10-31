@@ -509,7 +509,7 @@ async def activate_promo(msg: Message, state: FSMContext):
         await state.clear()
         return
     if days == -1:
-        set_premium(user_id, 9999)
+    set_premium(user_id, 9999)
                 await msg.answer("🎉 Пожизненный Премиум!")
     else:
         set_premium(user_id, days)
