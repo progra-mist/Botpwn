@@ -623,35 +623,37 @@ async def handle_zip(msg: Message):
 for _ in range(200):
     await asyncio.sleep(5)
     runs = requests.get(f"https://api.github.com/repos/{REPO}/actions/runs", headers=gh_headers).json()
-    # Ищем запуск, созданный после отправки запроса
     run = next((r for r in runs["workflow_runs"] 
-   if r["name"] == "Compile Pawn" 
-  and datetime.strptime(r["created_at"], "%Y-%m-%dT%H:%M:%SZ").timestamp() > start_time - 10), None)
-  if run and run["status"] == "completed":
-   if run["conclusion"] == "success":
-    arts = requests.get(run["artifacts_url"], headers=gh_headers).json()
-    if not arts["artifacts"]: return await msg.answer("❌ Нет артефакта.")
-    dl_url = arts["artifacts"][0]["archive_download_url"]
-    zip_resp = requests.get(dl_url, headers=gh_headers).content
-    with zipfile.ZipFile(io.BytesIO(zip_resp)) as z:
-     z.extractall("temp_out")
-     amx_file = [f for f in os.listdir("temp_out") if f.endswith(".amx")][0]
-    await msg.answer_document(FSInputFile(f"temp_out/{amx_file}"), caption="✅ Готово!")
-    os.remove(f"temp_out/{amx_file}")
-    os.rmdir("temp_out")
-    return
-   else:
-    logs_url = f"https://api.github.com/repos/{REPO}/actions/runs/{run['id']}/logs"
-    log_resp = requests.get(logs_url, headers=gh_headers, allow_redirects=True)
-    if log_resp.status_code == 200:
-     with zipfile.ZipFile(io.BytesIO(log_resp.content)) as z:
-      log_file = [f for f in z.namelist() if "Compile" in f or "compile" in f][0]
-      log_text = z.read(log_file).decode("utf-8", errors="replace")
-      with open("error_log.txt", "w", encoding="utf-8") as f: f.write(log_text)
-      await msg.answer_document(FSInputFile("error_log.txt"), caption="❌ Ошибка:")
-      os.remove("error_log.txt")
-    return
- await msg.answer("⌛ Долго.")
+                if r["name"] == "Compile Pawn" 
+                and datetime.strptime(r["created_at"], "%Y-%m-%dT%H:%M:%SZ").timestamp() > start_time - 10), None)
+    
+    if run and run["status"] == "completed":
+        if run["conclusion"] == "success":
+            arts = requests.get(run["artifacts_url"], headers=gh_headers).json()
+            if not arts["artifacts"]: 
+                return await msg.answer("❌ Артефакт не найден.")
+            dl_url = arts["artifacts"][0]["archive_download_url"]
+            zip_resp = requests.get(dl_url, headers=gh_headers).content
+            with zipfile.ZipFile(io.BytesIO(zip_resp)) as z:
+                z.extractall("temp_out")
+                amx_file = [f for f in os.listdir("temp_out") if f.endswith(".amx")][0]
+            await msg.answer_document(FSInputFile(f"temp_out/{amx_file}"), caption="✅ Успешно скомпилировано!")
+            os.remove(f"temp_out/{amx_file}")
+            os.rmdir("temp_out")
+            return
+        else:
+            logs_url = f"https://api.github.com/repos/{REPO}/actions/runs/{run['id']}/logs"
+            log_resp = requests.get(logs_url, headers=gh_headers, allow_redirects=True)
+            if log_resp.status_code == 200:
+                with zipfile.ZipFile(io.BytesIO(log_resp.content)) as z:
+                    log_file = [f for f in z.namelist() if "Compile" in f or "compile" in f][0]
+                    log_text = z.read(log_file).decode("utf-8", errors="replace")
+                    with open("error_log.txt", "w", encoding="utf-8") as f: 
+                        f.write(log_text)
+                    await msg.answer_document(FSInputFile("error_log.txt"), caption="❌ Ошибка компиляции:")
+                    os.remove("error_log.txt")
+            return
+await msg.answer("⌛ Долго.")
 
 @dp.message(F.text == "❓ Помощь")
 async def help_msg(msg: Message):
