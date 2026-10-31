@@ -33,11 +33,11 @@ jobs:
             exit 1
           }
           
+          # Копируем и exe, и dll в корень репозитория
+          Copy-Item $pawnccPath.FullName -Destination "pawncc.exe"
           Copy-Item $pawncDll.FullName -Destination "pawnc.dll"
           
-          echo "PAWNCC_PATH=$($pawnccPath.FullName)" >> $env:GITHUB_ENV
-          Write-Host "Компилятор: $($pawnccPath.FullName)"
-          Write-Host "DLL скопирована в корень: pawnc.dll"
+          Write-Host "Компилятор и DLL скопированы в корень."
 
       - name: Compile
         shell: cmd
@@ -60,7 +60,7 @@ jobs:
           )
           
           echo === ЗАПУСК PAWNCC ===
-          "%PAWNCC_PATH%" "%MAIN_PWN%" %INC_FLAGS% -ooutput.amx
+          pawncc.exe "%MAIN_PWN%" %INC_FLAGS% -ooutput.amx
           
           if not exist output.amx (
             echo Файл output.amx не создан. Ошибка компиляции.
