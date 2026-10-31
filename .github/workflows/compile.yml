@@ -24,25 +24,36 @@ jobs:
       - name: Compile
         shell: bash
         run: |
-          # 1. Ищем файл .pwn только в папке пользователя
-          MAIN_PWN=$(find "${{ inputs.source_dir }}" -type f -name "*.pwn" | head -n 1)
+          # 1. Ищем главный .pwn СТРОГО в папке gamemodes
+          MAIN_PWN=$(find "${{ inputs.source_dir }}" -type f -path "*/gamemodes/*.pwn" | head -n 1)
+          
+          # Если вдруг папки gamemodes нет, ищем любой .pwn, но НЕ в include
+          if [ -z "$MAIN_PWN" ]; then
+            echo "::warning::Папка gamemodes не найдена, ищем любой .pwn вне include..."
+            MAIN_PWN=$(find "${{ inputs.source_dir }}" -type f -name "*.pwn" -not -path "*/include/*" | head -n 1)
+          fi
           
           if [ -z "$MAIN_PWN" ]; then
-            echo "::error::Файл .pwn не найден в архиве."
+            echo "::error::Главный файл .pwn не найден"
             exit 1
           fi
 
           echo "=== КОМПИЛИРУЕМ: $MAIN_PWN ==="
 
-          # 2. Ищем папку include ТОЛЬКО внутри архива пользователя
-          USER_INC_DIR=$(find "${{ inputs.source_dir }}" -type d -name "include" | head -n 1)
+          # 2. Ищем папку include (сначала стандартную pawno/include)
+          USER_INC_DIR=$(find "${{ inputs.source_dir }}" -type d -path "*/pawno/include" | head -n 1)
+          
+          # Если такой нет, ищем просто любую папку include
+          if [ -z "$USER_INC_DIR" ]; then
+            USER_INC_DIR=$(find "${{ inputs.source_dir }}" -type d -name "include" | head -n 1)
+          fi
           
           if [ -z "$USER_INC_DIR" ]; then
-            echo "::error::В твоем архиве нет папки 'include'. Заархивируй мод вместе с инклюдами!"
+            echo "::error::Папка include не найдена."
             exit 1
           fi
 
-          echo "=== ИСПОЛЬЗУЕМ ИНКЛЮДЫ ПОЛЬЗОВАТЕЛЯ: $USER_INC_DIR ==="
+          echo "=== ИСПОЛЬЗУЕМ ИНКЛЮДЫ: $USER_INC_DIR ==="
 
           # 3. Запускаем компиляцию
           pawncc "$MAIN_PWN" "-i$USER_INC_DIR" -ooutput.amx
