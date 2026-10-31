@@ -1,4 +1,4 @@
-name: Compile Pawn
+name: Compile Pawn (Windows)
 
 on:
   workflow_dispatch:
@@ -14,41 +14,53 @@ on:
 
 jobs:
   compile:
-    runs-on: ubuntu-22.04
-    container:
-      image: michaelace/pawncc:3.10.11-linux
+    # ГЛАВНОЕ ИЗМЕНЕНИЕ: запускаем на Windows
+    runs-on: windows-latest 
+    
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Compile
-        shell: bash
+      - name: Download Pawn Compiler (Windows)
+        shell: pwsh
         run: |
-          echo "=== Сканируем архив на наличие файлов ==="
+          # Скачиваем Windows-версию компилятора (pawncc.exe)
+          Invoke-WebRequest -Uri "https://github.com/pawn-lang/compiler/releases/download/v3.10.10/pawnc-3.10.10-windows.zip" -OutFile "pawnc.zip"
           
-          # 1. Ищем ВСЕ файлы .pwn, КРОМЕ тех, что лежат в папках include
-          MAIN_PWN=$(find "${{ inputs.source_dir }}" -type f -name "*.pwn" -not -path "*/include/*" | head -n 1)
+          # Распаковываем
+          Expand-Archive -Path "pawnc.zip" -DestinationPath "pawnc"
           
-          if [ -z "$MAIN_PWN" ]; then
-            echo "::error::Главный файл .pwn не найден (исключены папки include)."
+          # Ищем файл pawncc.exe и добавляем его папку в PATH
+          $pawnccPath = Get-ChildItem -Path "pawnc" -Filter "pawncc.exe" -Recurse | Select-Object -First 1
+          $pawnccDir = $pawnccPath.DirectoryName
+          echo "$pawnccDir" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+          
+          Write-Host "Компилятор найден в: $pawnccDir"
+
+      - name: Compile
+        shell: pwsh
+        run: |
+          # 1. Ищем главный .pwn файл (исключаем папку include)
+          $mainPwn = Get-ChildItem -Path "${{ inputs.source_dir }}" -Filter "*.pwn" -Recurse | Where-Object { $_.FullName -notmatch '\\include\\' } | Select-Object -First 1
+          
+          if (-not $mainPwn) {
+            Write-Error "Главный файл .pwn не найден"
             exit 1
-          fi
+          }
 
-          echo "=== КОМПИЛИРУЕМ: $MAIN_PWN ==="
+          Write-Host "=== КОМПИЛИРУЕМ: $($mainPwn.FullName) ==="
 
-          # 2. Собираем АБСОЛЮТНО ВСЕ папки в архиве пользователя
-          INC_DIRS=$(find "${{ inputs.source_dir }}" -type d)
+          # 2. Ищем ВСЕ папки в архиве (чтобы найти и include, и файлы .lang)
+          $allDirs = Get-ChildItem -Path "${{ inputs.source_dir }}" -Directory -Recurse | Select-Object -ExpandProperty FullName
           
-          # Формируем флаги -i для каждой найденной папки
-          INC_FLAGS=""
-          for dir in $INC_DIRS; do
-            INC_FLAGS="$INC_FLAGS -i$dir"
-          done
-
-          echo "=== ДОБАВЛЕНО ПУТЕЙ ДЛЯ ПОИСКА: $(echo $INC_DIRS | wc -w) ==="
+          # Формируем строку с путями для компилятора
+          $incFlags = ""
+          foreach ($dir in $allDirs) {
+            $incFlags += " -i`"$dir`""
+          }
 
           # 3. Запускаем компиляцию
-          pawncc "$MAIN_PWN" $INC_FLAGS -ooutput.amx
+          pawncc $mainPwn.FullName $incFlags -ooutput.amx
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
