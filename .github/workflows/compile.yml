@@ -14,19 +14,21 @@ on:
 
 jobs:
   compile-windows:
-    # 📌 windows-2022 содержит полную 32-битную подсистему без урезаний Server 2025
     runs-on: windows-2022
 
     steps:
-      - name: 📥 Checkout repository
+      - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: ⚙️ Install Full Visual C++ Runtimes (x86 & x64)
+      - name: Install VC++ 2010 (x86)
         shell: powershell
         run: |
-          choco install vcredist-all --no-progress -y
+          $url = "https://download.microsoft.com/download/1/6/5/165255E7-1014-4D0A-B094-B6A430A6BFFC/vcredist_x86.exe"
+          Invoke-WebRequest -Uri $url -OutFile "vcredist_x86.exe"
+          Start-Process -FilePath ".\vcredist_x86.exe" -ArgumentList "/q", "/norestart" -Wait
+          Remove-Item ".\vcredist_x86.exe"
 
-      - name: 📦 Download Pawn Compiler (3.10.10)
+      - name: Download Pawn Compiler (3.10.10)
         shell: powershell
         run: |
           $url = "https://github.com/pawn-lang/compiler/releases/download/v3.10.10/pawnc-3.10.10-windows.zip"
@@ -34,12 +36,11 @@ jobs:
           Expand-Archive -Path "pawnc.zip" -DestinationPath "C:\pawnc"
           Remove-Item "pawnc.zip"
 
-      - name: 🔨 Compile Gamemode
+      - name: Compile Gamemode
         shell: cmd
         run: |
           cd /D "C:\pawnc\bin"
           
-          :: Ищем главный .pwn в динамической папке
           set MAIN_PWN=
           for /f "delims=" %%i in ('dir /b /s "${{ inputs.source_dir }}\*.pwn" ^| findstr /v /i "\\include\\"') do (
             set MAIN_PWN=%%i
@@ -51,9 +52,11 @@ jobs:
             exit /b 1
           )
           
-          echo === КОМПИЛИРУЕМ: %MAIN_PWN% ===
+          for %%F in ("%MAIN_PWN%") do set MODNAME=%%~nF
           
-          :: Ищем папку include
+          echo === КОМПИЛИРУЕМ: %MAIN_PWN% ===
+          echo === ИМЯ МОДА: %MODNAME% ===
+          
           set INC_DIR=
           for /f "delims=" %%d in ('dir /b /s /ad "${{ inputs.source_dir }}" ^| findstr /i "\\include$"') do (
             set INC_DIR=%%d
@@ -68,17 +71,22 @@ jobs:
           echo === ИНКЛЮДЫ: %INC_DIR% ===
           
           pawncc.exe "%MAIN_PWN%" ^
-            "-o%GITHUB_WORKSPACE%\output.amx" ^
+            "-o%GITHUB_WORKSPACE%\%MODNAME%" ^
             "-i%INC_DIR%" ^
             "-iC:\pawnc\include" ^
             -d3 -;+ -(
             
           if %ERRORLEVEL% NEQ 0 exit /b %ERRORLEVEL%
+          
+          if not exist "%GITHUB_WORKSPACE%\%MODNAME%.amx" (
+            echo Файл %MODNAME%.amx не создан!
+            exit /b 1
+          )
 
-      - name: 📤 Upload AMX Artifact
+      - name: Upload AMX Artifact
         uses: actions/upload-artifact@v4
         with:
           name: pawn-${{ inputs.request_id }}
-          path: output.amx
+          path: ${{ inputs.source_dir }}\**\*.amx
           if-no-files-found: error
           retention-days: 1
