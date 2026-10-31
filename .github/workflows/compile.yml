@@ -36,16 +36,16 @@ jobs:
 
           echo "=== КОМПИЛИРУЕМ: $MAIN_PWN ==="
 
-          # 2. Собираем АБСОЛЮТНО ВСЕ папки, где есть файлы .inc, .lang, .txt
-          # Это нужно для того, чтобы компилятор нашел и инклюды, и файлы перевода (lang)
-          INC_DIRS=$(find "${{ inputs.source_dir }}" -type f \( -name "*.inc" -o -name "*.lang" -o -name "*.txt" \) -printf '%h\n' | sort -u)
+          # 2. Собираем АБСОЛЮТНО ВСЕ папки в архиве пользователя
+          INC_DIRS=$(find "${{ inputs.source_dir }}" -type d)
           
           # Формируем флаги -i для каждой найденной папки
           INC_FLAGS=""
           for dir in $INC_DIRS; do
             INC_FLAGS="$INC_FLAGS -i$dir"
-            echo "Добавляем путь для поиска: $dir"
           done
+
+          echo "=== ДОБАВЛЕНО ПУТЕЙ ДЛЯ ПОИСКА: $(echo $INC_DIRS | wc -w) ==="
 
           # 3. Запускаем компиляцию
           pawncc "$MAIN_PWN" $INC_FLAGS -ooutput.amx
