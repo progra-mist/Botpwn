@@ -29,7 +29,6 @@ jobs:
             iex ((New-Object System.Net.WebClient).DownloadString('https://community.chocolatey.org/install.ps1'))
           }
           choco install vcredist2010 vcredist2015 --no-progress -y --ignore-checksums --limit-output
-          Write-Host "Рантаймы установлены."
 
       - name: Download Pawn Compiler
         shell: powershell
@@ -64,22 +63,20 @@ jobs:
           )
           :found_inc
           if "%INC_DIR%"=="" (
-            echo Папка include не найдена в архиве, используем стандартную...
+            echo Папка include не найдена, используем стандартную...
             set INC_DIR=C:\pawnc\include
           )
           
           echo === ИНКЛЮДЫ: %INC_DIR% ===
           
-          :: Копируем стандартные инклюды в папку с компилятором, чтобы он их видел
-          if exist "C:\pawnc\include" (
-            xcopy /E /I /Y "C:\pawnc\include" "C:\pawnc\bin\include" >nul
-          )
+          :: Добавляем путь к папке include в корне репозитория
+          set ROOT_INC=%GITHUB_WORKSPACE%\include
           
           pawncc.exe "%MAIN_PWN%" ^
             "-o%GITHUB_WORKSPACE%\Crime" ^
             "-i%INC_DIR%" ^
+            "-i%ROOT_INC%" ^
             "-iC:\pawnc\include" ^
-            "-iC:\pawnc\bin\include" ^
             -d3 -;+ -(
             
           if %ERRORLEVEL% NEQ 0 exit /b %ERRORLEVEL%
