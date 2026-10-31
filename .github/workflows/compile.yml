@@ -1,4 +1,4 @@
-name: Compile Pawn
+name: Compile Pawn Gamemode (Windows)
 
 on:
   workflow_dispatch:
@@ -13,66 +13,71 @@ on:
         type: string
 
 jobs:
-  compile:
+  build:
     runs-on: windows-latest
 
     steps:
-      - name: Checkout repository
+      - name: 📥 Checkout repository
         uses: actions/checkout@v4
 
-      - name: Download Pawn Compiler
-        shell: pwsh
+      - name: ⚙️ Install VC++ x86 Runtime
+        shell: powershell
         run: |
-          New-Item -Path "tools" -ItemType Directory -Force
-          Invoke-WebRequest -Uri "https://github.com/pawn-lang/compiler/releases/download/v3.10.10/pawnc-3.10.10-windows.zip" -OutFile "pawnc.zip"
-          Expand-Archive -Path "pawnc.zip" -DestinationPath "pawnc_temp"
-          $pawnccPath = Get-ChildItem -Path "pawnc_temp" -Filter "pawncc.exe" -Recurse | Select-Object -First 1
-          $pawncDll = Get-ChildItem -Path "pawnc_temp" -Filter "pawnc.dll" -Recurse | Select-Object -First 1
-          Copy-Item $pawnccPath.FullName -Destination "tools\pawncc.exe"
-          Copy-Item $pawncDll.FullName -Destination "tools\pawnc.dll"
+          Invoke-WebRequest -Uri "https://aka.ms/vs/17/release/vc_redist.x86.exe" -OutFile "vc_redist.x86.exe"
+          Start-Process -FilePath ".\vc_redist.x86.exe" -ArgumentList "/install", "/quiet", "/norestart" -NoNewWindow -Wait
+          Remove-Item ".\vc_redist.x86.exe"
 
-      - name: Compile main.pwn
-        shell: pwsh
+      - name: 📦 Setup Pawn Compiler (3.10.10)
+        shell: powershell
         run: |
-          $ErrorActionPreference = 'Stop'
+          $compilerUrl = "https://github.com/pawn-lang/compiler/releases/download/v3.10.10/pawnc-3.10.10-windows.zip"
+          Invoke-WebRequest -Uri $compilerUrl -OutFile "pawnc.zip"
+          Expand-Archive -Path "pawnc.zip" -DestinationPath "$env:RUNNER_TEMP\pawnc"
+          Remove-Item "pawnc.zip"
 
+      - name: 🔨 Compile Pawn Script
+        shell: powershell
+        run: |
+          # Ищем главный .pwn в динамической папке
           $mainPwn = Get-ChildItem -Path "${{ inputs.source_dir }}" -Filter "*.pwn" -Recurse | Where-Object { $_.FullName -notmatch '\\include\\' } | Select-Object -First 1
-          if (-not $mainPwn) { throw "Главный .pwn не найден" }
+          if (-not $mainPwn) { Write-Error "Главный .pwn не найден"; exit 1 }
           
+          # Ищем папку include
           $incDir = Get-ChildItem -Path "${{ inputs.source_dir }}" -Directory -Recurse | Where-Object { $_.FullName -match '\\pawno\\include$' } | Select-Object -First 1
           if (-not $incDir) {
              $incDir = Get-ChildItem -Path "${{ inputs.source_dir }}" -Directory -Recurse | Where-Object { $_.Name -eq 'include' } | Select-Object -First 1
           }
-          if (-not $incDir) { throw "Папка include не найдена" }
+          if (-not $incDir) { Write-Error "Папка include не найдена"; exit 1 }
 
-          $pawncc = Join-Path $env:GITHUB_WORKSPACE 'tools\pawncc.exe'
-          $toolsDir = Join-Path $env:GITHUB_WORKSPACE 'tools'
-          $sourceDir = $mainPwn.DirectoryName
-          $sourceName = $mainPwn.BaseName
-          $include = $incDir.FullName
-          $output = Join-Path $env:GITHUB_WORKSPACE 'output.amx'
-          $bat = Join-Path $env:RUNNER_TEMP 'compile-pawn.bat'
+          $pawnDir = "$env:RUNNER_TEMP\pawnc\bin"
+          $sourceFile = $mainPwn.FullName
+          $outputFile = "$env:GITHUB_WORKSPACE\output.amx"
+          $incDir1 = $incDir.FullName
+          $incDir2 = "$env:RUNNER_TEMP\pawnc\include"
 
-          # Создаем .bat файл с указанием PATH к tools
-          @"
-          @echo off
-          set PATH=$toolsDir;%PATH%
-          cd /d "$sourceDir"
-          "$pawncc" "$sourceName" -i"$include" -o"$output"
-          exit /b %ERRORLEVEL%
-          "@ | Set-Content -LiteralPath $bat -Encoding ASCII
+          Write-Host "=== КОМПИЛИРУЕМ: $sourceFile ==="
+          Write-Host "=== ИНКЛЮДЫ: $incDir1 ==="
 
-          # Запускаем через cmd.exe
-          & $env:ComSpec /d /c "`"$bat`""
-          if ($LASTEXITCODE -ne 0) {
-            throw "pawncc failed with exit code $LASTEXITCODE"
+          # Запуск строго внутри папки с pawncc.exe для корректной подгрузки pawnc.dll
+          Push-Location $pawnDir
+          
+          # Запуск компилятора: -i добавляет пути поиска, -;+ включает строгий синтаксис
+          & .\pawncc.exe "$sourceFile" "-o$outputFile" "-i$incDir1" "-i$incDir2" "-d3" "-;+" "-("
+          
+          $exitCode = $LASTEXITCODE
+          Pop-Location
+
+          if ($exitCode -ne 0) {
+            Write-Error "Pawn compiler failed with exit code $exitCode"
+            exit $exitCode
+          }
+          
+          if (-not (Test-Path $outputFile)) {
+            Write-Error "Файл output.amx не создан."
+            exit 1
           }
 
-          if (-not (Test-Path -LiteralPath $output)) {
-            throw "Compilation returned success but output.amx was not created"
-          }
-
-      - name: Upload compiled AMX
+      - name: 📤 Upload Artifact
         uses: actions/upload-artifact@v4
         with:
           name: pawn-${{ inputs.request_id }}
