@@ -24,37 +24,28 @@ jobs:
       - name: Compile
         shell: bash
         run: |
-          # 1. Ищем файл .pwn
+          # 1. Ищем файл .pwn только в папке пользователя
           MAIN_PWN=$(find "${{ inputs.source_dir }}" -type f -name "*.pwn" | head -n 1)
           
           if [ -z "$MAIN_PWN" ]; then
-            echo "::error::Файл .pwn не найден"
+            echo "::error::Файл .pwn не найден в архиве."
             exit 1
           fi
 
           echo "=== КОМПИЛИРУЕМ: $MAIN_PWN ==="
 
-          # 2. Ищем папку include
+          # 2. Ищем папку include ТОЛЬКО внутри архива пользователя
           USER_INC_DIR=$(find "${{ inputs.source_dir }}" -type d -name "include" | head -n 1)
           
           if [ -z "$USER_INC_DIR" ]; then
-            echo "=== ВНИМАНИЕ: папка include не найдена ==="
-            INC_FLAGS=""
-          else
-            echo "=== ИСПОЛЬЗУЕМ ИНКЛЮДЫ: $USER_INC_DIR ==="
-            INC_FLAGS="-i$USER_INC_DIR"
-          fi
-
-          # 3. Запускаем компиляцию и ЛОВИМ весь вывод
-          echo "=== НАЧАЛО ВЫВОДА PAWNCC ==="
-          pawncc "$MAIN_PWN" $INC_FLAGS -ooutput.amx 2>&1 | tee compile_log.txt
-          echo "=== КОНЕЦ ВЫВОДА PAWNCC ==="
-
-          # 4. Проверяем, создался ли файл
-          if [ ! -s output.amx ]; then
-            echo "::error::Файл output.amx не создан. Ошибка компиляции."
+            echo "::error::В твоем архиве нет папки 'include'. Заархивируй мод вместе с инклюдами!"
             exit 1
           fi
+
+          echo "=== ИСПОЛЬЗУЕМ ИНКЛЮДЫ ПОЛЬЗОВАТЕЛЯ: $USER_INC_DIR ==="
+
+          # 3. Запускаем компиляцию
+          pawncc "$MAIN_PWN" "-i$USER_INC_DIR" -ooutput.amx
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
