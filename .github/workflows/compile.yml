@@ -24,29 +24,38 @@ jobs:
       - name: Compile
         shell: bash
         run: |
-          # 1. Ищем главный .pwn файл (исключаем папку include)
-          MAIN_PWN=$(find "${{ inputs.source_dir }}" -type f -name "*.pwn" | head -n 1)
+          # 1. Ищем ЛЮБОЙ файл .pwn в папке (игнорируем кириллицу в названиях папок)
+          MAIN_PWN=$(find "${{ inputs.source_dir }}" -type f -name "*.pwn" | grep -v "[а-яА-Я]" | head -n 1)
           
           if [ -z "$MAIN_PWN" ]; then
             echo "::error::Файл .pwn не найден в папке ${{ inputs.source_dir }}"
-            # Выводим список всех файлов, чтобы понять, что прислал пользователь
             echo "Содержимое папки:"
-            ls -R "${{ inputs.source_dir }}"
+            find "${{ inputs.source_dir }}" -type f
             exit 1
           fi
 
           echo "Компилируем файл: $MAIN_PWN"
 
-          # 2. Ищем папку include
-          USER_INC_DIR=$(find "${{ inputs.source_dir }}" -type d -name "include" | head -n 1)
-          INC_FLAGS=""
-          if [ -n "$USER_INC_DIR" ]; then
-            INC_FLAGS="-i$USER_INC_DIR"
+          # 2. Ищем ЛЮБУЮ папку include
+          USER_INC_DIR=$(find "${{ inputs.source_dir }}" -type d -name "include" | grep -v "[а-яА-Я]" | head -n 1)
+          
+          if [ -z "$USER_INC_DIR" ]; then
+            echo "::warning::Папка include не найдена, компилируем без дополнительных инклюдов."
+            INC_FLAGS=""
+          else
             echo "Используем инклюды из: $USER_INC_DIR"
+            INC_FLAGS="-i$USER_INC_DIR"
           fi
 
-          # 3. Запускаем компиляцию СТРОГО указанного файла
-          pawncc "$MAIN_PWN" $INC_FLAGS -ooutput.amx
+          # 3. Запускаем компиляцию
+          pawncc "$MAIN_PWN" $INC_FLAGS -ooutput.amx || true
+
+          # 4. Проверяем, создался ли файл
+          if [ ! -s output.amx ]; then
+            echo "::error::Компилятор не создал output.amx. Скорее всего, в коде ошибки."
+            # Выводим все ошибки из лога для удобства
+            exit 1
+          fi
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
