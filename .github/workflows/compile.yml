@@ -70,13 +70,17 @@ jobs:
           
           echo === ИНКЛЮДЫ: %INC_DIR% ===
           
+          :: Компилируем (файл создастся в C:\pawnc\bin\%MODNAME%.amx)
           pawncc.exe "%MAIN_PWN%" ^
-            "-o%GITHUB_WORKSPACE%\%MODNAME%" ^
+            "-o%MODNAME%" ^
             "-i%INC_DIR%" ^
             "-iC:\pawnc\include" ^
             -d3 -;+ -(
             
           if %ERRORLEVEL% NEQ 0 exit /b %ERRORLEVEL%
+          
+          :: Копируем результат в папку репозитория, где GitHub его найдет
+          copy "C:\pawnc\bin\%MODNAME%.amx" "%GITHUB_WORKSPACE%\%MODNAME%.amx"
           
           if not exist "%GITHUB_WORKSPACE%\%MODNAME%.amx" (
             echo Файл %MODNAME%.amx не создан!
@@ -87,6 +91,6 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: pawn-${{ inputs.request_id }}
-          path: ${{ inputs.source_dir }}\**\*.amx
+          path: ${{ github.workspace }}/*.amx
           if-no-files-found: error
           retention-days: 1
