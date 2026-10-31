@@ -1,4 +1,4 @@
-name: Compile Pawn Gamemode (Windows)
+name: Compile Pawn (Windows)
 
 on:
   workflow_dispatch:
@@ -20,11 +20,11 @@ jobs:
       - name: 📥 Checkout repository
         uses: actions/checkout@v4
 
-      - name: ⚙️ Install VC++ x86 Runtime
+      - name: ⚙️ Install VC++ Redistributables (x86 & x64)
         shell: powershell
         run: |
           Invoke-WebRequest -Uri "https://aka.ms/vs/17/release/vc_redist.x86.exe" -OutFile "vc_redist.x86.exe"
-          Start-Process -FilePath ".\vc_redist.x86.exe" -ArgumentList "/install", "/quiet", "/norestart" -NoNewWindow -Wait
+          Start-Process -FilePath ".\vc_redist.x86.exe" -ArgumentList "/install", "/quiet", "/norestart" -Wait
           Remove-Item ".\vc_redist.x86.exe"
 
       - name: 📦 Setup Pawn Compiler (3.10.10)
@@ -32,50 +32,49 @@ jobs:
         run: |
           $compilerUrl = "https://github.com/pawn-lang/compiler/releases/download/v3.10.10/pawnc-3.10.10-windows.zip"
           Invoke-WebRequest -Uri $compilerUrl -OutFile "pawnc.zip"
-          Expand-Archive -Path "pawnc.zip" -DestinationPath "$env:RUNNER_TEMP\pawnc"
+          Expand-Archive -Path "pawnc.zip" -DestinationPath "C:\pawnc"
           Remove-Item "pawnc.zip"
+          
+          # КРИТИЧЕСКИЙ ШАГ: Регистрация pawnc.dll в системной папке для 32-битных процессов
+          Copy-Item "C:\pawnc\bin\pawnc.dll" -Destination "C:\Windows\SysWOW64\pawnc.dll" -Force
+          Copy-Item "C:\pawnc\bin\pawnc.dll" -Destination "C:\Windows\System32\pawnc.dll" -Force
 
-      - name: 🔨 Compile Pawn Script
-        shell: powershell
+      - name: 🔨 Compile Gamemode
+        shell: cmd
         run: |
+          cd /D "C:\pawnc\bin"
+          
           # Ищем главный .pwn в динамической папке
-          $mainPwn = Get-ChildItem -Path "${{ inputs.source_dir }}" -Filter "*.pwn" -Recurse | Where-Object { $_.FullName -notmatch '\\include\\' } | Select-Object -First 1
-          if (-not $mainPwn) { Write-Error "Главный .pwn не найден"; exit 1 }
+          set MAIN_PWN=
+          for /f "delims=" %%i in ('dir /b /s "${{ inputs.source_dir }}\*.pwn" ^| findstr /v /i "\\include\\"') do (
+            set MAIN_PWN=%%i
+            goto :found
+          )
+          :found
+          if "%MAIN_PWN%"=="" (
+            echo Главный .pwn не найден
+            exit /b 1
+          )
+          
+          echo === КОМПИЛИРУЕМ: %MAIN_PWN% ===
           
           # Ищем папку include
-          $incDir = Get-ChildItem -Path "${{ inputs.source_dir }}" -Directory -Recurse | Where-Object { $_.FullName -match '\\pawno\\include$' } | Select-Object -First 1
-          if (-not $incDir) {
-             $incDir = Get-ChildItem -Path "${{ inputs.source_dir }}" -Directory -Recurse | Where-Object { $_.Name -eq 'include' } | Select-Object -First 1
-          }
-          if (-not $incDir) { Write-Error "Папка include не найдена"; exit 1 }
-
-          $pawnDir = "$env:RUNNER_TEMP\pawnc\bin"
-          $sourceFile = $mainPwn.FullName
-          $outputFile = "$env:GITHUB_WORKSPACE\output.amx"
-          $incDir1 = $incDir.FullName
-          $incDir2 = "$env:RUNNER_TEMP\pawnc\include"
-
-          Write-Host "=== КОМПИЛИРУЕМ: $sourceFile ==="
-          Write-Host "=== ИНКЛЮДЫ: $incDir1 ==="
-
-          # Запуск строго внутри папки с pawncc.exe для корректной подгрузки pawnc.dll
-          Push-Location $pawnDir
+          set INC_DIR=
+          for /f "delims=" %%d in ('dir /b /s /ad "${{ inputs.source_dir }}" ^| findstr /i "\\include$"') do (
+            set INC_DIR=%%d
+            goto :found_inc
+          )
+          :found_inc
+          if "%INC_DIR%"=="" (
+            echo Папка include не найдена
+            exit /b 1
+          )
           
-          # Запуск компилятора: -i добавляет пути поиска, -;+ включает строгий синтаксис
-          & .\pawncc.exe "$sourceFile" "-o$outputFile" "-i$incDir1" "-i$incDir2" "-d3" "-;+" "-("
+          echo === ИНКЛЮДЫ: %INC_DIR% ===
           
-          $exitCode = $LASTEXITCODE
-          Pop-Location
-
-          if ($exitCode -ne 0) {
-            Write-Error "Pawn compiler failed with exit code $exitCode"
-            exit $exitCode
-          }
+          pawncc.exe "%MAIN_PWN%" -o"%GITHUB_WORKSPACE%\output.amx" -i"%INC_DIR%" -i"C:\pawnc\include" -d3 -;+ -(
           
-          if (-not (Test-Path $outputFile)) {
-            Write-Error "Файл output.amx не создан."
-            exit 1
-          }
+          if %ERRORLEVEL% NEQ 0 exit /b %ERRORLEVEL%
 
       - name: 📤 Upload Artifact
         uses: actions/upload-artifact@v4
