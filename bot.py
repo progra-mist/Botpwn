@@ -15,7 +15,7 @@ load_dotenv()
 # --- НАСТРОЙКИ ---
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 GITHUB_TOKEN = os.getenv("GITHUB_TOKEN")
-DEEPSEEK_API_KEY = os.getenv("DEEPSEEK_API_KEY") # <--- Ключ DeepSeek
+DEEPSEEK_API_KEY = os.getenv("DEEPSEEK_API_KEY")
 ADMIN_ID = int(os.getenv("ADMIN_ID", 0))
 REPO = "progra-mist/Botpwn" 
 
@@ -33,7 +33,8 @@ def get_main_keyboard(user_id):
         [KeyboardButton(text="📂 Отправить мод ZIP")],
         [KeyboardButton(text="❓ Помощь")]
     ]
-    if user_id == ADMIN_ID:
+    # Кнопка ИИ только для админа
+    if str(user_id) == str(ADMIN_ID):
         kb.insert(1, [KeyboardButton(text="🛠 Починить репозиторий (ИИ)")])
     return ReplyKeyboardMarkup(keyboard=kb, resize_keyboard=True)
 
@@ -53,22 +54,20 @@ async def help_msg(msg: Message):
 async def send_zip_msg(msg: Message):
     await msg.answer("Жду твой ZIP-архив! 📦")
 
-# --- ИИ РЕМОНТ (Только для админа) ---
+# --- ИИ РЕМОНТ ---
 @dp.message(F.text == "🛠 Починить репозиторий (ИИ)")
 async def fix_repo(msg: Message):
-    if msg.from_user.id != ADMIN_ID:
+    if str(msg.from_user.id) != str(ADMIN_ID):
         return await msg.answer("⛔ У тебя нет прав на это действие.")
 
     await msg.answer("🧠 Скачиваю последний лог ошибки и файл compile.yml...")
 
-    # 1. Получаем последний запуск
     runs = requests.get(f"https://api.github.com/repos/{REPO}/actions/runs", headers=gh_headers).json()
     run = next((r for r in runs["workflow_runs"] if r["name"] == "Compile Pawn"), None)
 
     if not run or run["conclusion"] != "failure":
         return await msg.answer("✅ Последняя компиляция не падала (или логов нет).")
 
-    # 2. Скачиваем лог
     log_url = f"https://api.github.com/repos/{REPO}/actions/runs/{run['id']}/logs"
     log_resp = requests.get(log_url, headers=gh_headers, allow_redirects=True)
     
@@ -79,22 +78,17 @@ async def fix_repo(msg: Message):
             log_text = z.read(log_file).decode("utf-8", errors="replace")
             error_text = "\n".join([l for l in log_text.splitlines() if "error" in l.lower()])
 
-    # 3. Скачиваем compile.yml
     yml_url = f"https://api.github.com/repos/{REPO}/contents/.github/workflows/compile.yml"
     yml_resp = requests.get(yml_url, headers=gh_headers).json()
     yml_content = base64.b64decode(yml_resp["content"]).decode("utf-8")
 
     await msg.answer("🧠 Отправляю данные ИИ (DeepSeek), он думает...")
 
-    # 4. Отправляем в DeepSeek
     ai_url = "https://api.deepseek.com/v1/chat/completions"
     ai_headers = {"Authorization": f"Bearer {DEEPSEEK_API_KEY}", "Content-Type": "application/json"}
     prompt = f"Ты — эксперт по GitHub Actions и Pawn. У меня упала компиляция.\nВот лог ошибки:\n{error_text}\n\nВот текущий файл compile.yml:\n{yml_content}\n\nНапиши ТОЛЬКО исправленный код файла compile.yml. Без лишних слов, без markdown-тегов, просто код."
     
-    ai_data = {
-        "model": "deepseek-chat", 
-        "messages": [{"role": "user", "content": prompt}]
-    }
+    ai_data = {"model": "deepseek-chat", "messages": [{"role": "user", "content": prompt}]}
     ai_resp = requests.post(ai_url, headers=ai_headers, json=ai_data)
 
     if ai_resp.status_code != 200:
@@ -103,7 +97,7 @@ async def fix_repo(msg: Message):
     new_yml = ai_resp.json()["choices"][0]["message"]["content"]
     new_yml = new_yml.replace("```yaml", "").replace("```", "").strip()
 
-    await msg.answer(f"📝 **ИИ предлагает такой код:**\n\n`{new_yml[:1000]}...`\n\nПрименить изменения?", 
+    await msg.answer(f"📝 **ИИ предлагает код:**\n\n`{new_yml[:1000]}...`\n\nПрименить?", 
                      reply_markup=ReplyKeyboardMarkup(keyboard=[[KeyboardButton(text="✅ Применить")]], resize_keyboard=True))
 
     global pending_fix
@@ -111,7 +105,7 @@ async def fix_repo(msg: Message):
 
 @dp.message(F.text == "✅ Применить")
 async def apply_fix(msg: Message):
-    if msg.from_user.id != ADMIN_ID:
+    if str(msg.from_user.id) != str(ADMIN_ID):
         return await msg.answer("⛔ У тебя нет прав.")
     
     if 'pending_fix' not in globals():
@@ -128,7 +122,7 @@ async def apply_fix(msg: Message):
     await msg.answer("✅ Файл обновлен! Скинь архив заново для проверки.")
     del pending_fix
 
-# --- ЛОГИКА КОМПИЛЯЦИИ (ZIP) ---
+# --- КОМПИЛЯЦИЯ ---
 @dp.message(F.document)
 async def handle_zip(msg: Message):
     if not msg.document.file_name.endswith(".zip"):
