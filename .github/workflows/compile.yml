@@ -13,38 +13,33 @@ on:
         type: string
 
 jobs:
-  build:
-    runs-on: windows-latest
+  compile-windows:
+    # 📌 windows-2022 содержит полную 32-битную подсистему без урезаний Server 2025
+    runs-on: windows-2022
 
     steps:
       - name: 📥 Checkout repository
         uses: actions/checkout@v4
 
-      - name: ⚙️ Install VC++ Redistributables (x86 & x64)
+      - name: ⚙️ Install Full Visual C++ Runtimes (x86 & x64)
         shell: powershell
         run: |
-          Invoke-WebRequest -Uri "https://aka.ms/vs/17/release/vc_redist.x86.exe" -OutFile "vc_redist.x86.exe"
-          Start-Process -FilePath ".\vc_redist.x86.exe" -ArgumentList "/install", "/quiet", "/norestart" -Wait
-          Remove-Item ".\vc_redist.x86.exe"
+          choco install vcredist-all --no-progress -y
 
-      - name: 📦 Setup Pawn Compiler (3.10.10)
+      - name: 📦 Download Pawn Compiler (3.10.10)
         shell: powershell
         run: |
-          $compilerUrl = "https://github.com/pawn-lang/compiler/releases/download/v3.10.10/pawnc-3.10.10-windows.zip"
-          Invoke-WebRequest -Uri $compilerUrl -OutFile "pawnc.zip"
+          $url = "https://github.com/pawn-lang/compiler/releases/download/v3.10.10/pawnc-3.10.10-windows.zip"
+          Invoke-WebRequest -Uri $url -OutFile "pawnc.zip"
           Expand-Archive -Path "pawnc.zip" -DestinationPath "C:\pawnc"
           Remove-Item "pawnc.zip"
-          
-          # КРИТИЧЕСКИЙ ШАГ: Регистрация pawnc.dll в системной папке для 32-битных процессов
-          Copy-Item "C:\pawnc\bin\pawnc.dll" -Destination "C:\Windows\SysWOW64\pawnc.dll" -Force
-          Copy-Item "C:\pawnc\bin\pawnc.dll" -Destination "C:\Windows\System32\pawnc.dll" -Force
 
       - name: 🔨 Compile Gamemode
         shell: cmd
         run: |
           cd /D "C:\pawnc\bin"
           
-          # Ищем главный .pwn в динамической папке
+          :: Ищем главный .pwn в динамической папке
           set MAIN_PWN=
           for /f "delims=" %%i in ('dir /b /s "${{ inputs.source_dir }}\*.pwn" ^| findstr /v /i "\\include\\"') do (
             set MAIN_PWN=%%i
@@ -58,7 +53,7 @@ jobs:
           
           echo === КОМПИЛИРУЕМ: %MAIN_PWN% ===
           
-          # Ищем папку include
+          :: Ищем папку include
           set INC_DIR=
           for /f "delims=" %%d in ('dir /b /s /ad "${{ inputs.source_dir }}" ^| findstr /i "\\include$"') do (
             set INC_DIR=%%d
@@ -72,11 +67,15 @@ jobs:
           
           echo === ИНКЛЮДЫ: %INC_DIR% ===
           
-          pawncc.exe "%MAIN_PWN%" -o"%GITHUB_WORKSPACE%\output.amx" -i"%INC_DIR%" -i"C:\pawnc\include" -d3 -;+ -(
-          
+          pawncc.exe "%MAIN_PWN%" ^
+            "-o%GITHUB_WORKSPACE%\output.amx" ^
+            "-i%INC_DIR%" ^
+            "-iC:\pawnc\include" ^
+            -d3 -;+ -(
+            
           if %ERRORLEVEL% NEQ 0 exit /b %ERRORLEVEL%
 
-      - name: 📤 Upload Artifact
+      - name: 📤 Upload AMX Artifact
         uses: actions/upload-artifact@v4
         with:
           name: pawn-${{ inputs.request_id }}
