@@ -42,19 +42,29 @@ jobs:
           if (-not $mainPwn) { Write-Error "Главный .pwn не найден"; exit 1 }
           Write-Host "=== КОМПИЛИРУЕМ: $($mainPwn.FullName) ==="
           
-          $incDirs = Get-ChildItem -Path "${{ inputs.source_dir }}" -Filter "*.inc" -Recurse | Select-Object -ExpandProperty DirectoryName -Unique
+          # Ищем ТОЛЬКО папки include и pawno/include (не трогаем modules!)
+          $incDirs = @()
+          
+          # Стандартная папка pawno/include
+          $pawnoInclude = Get-ChildItem -Path "${{ inputs.source_dir }}" -Directory -Recurse | Where-Object { $_.FullName -match '\\pawno\\include$' } | Select-Object -First 1
+          if ($pawnoInclude) { $incDirs += $pawnoInclude.FullName }
+          
+          # Если pawno/include нет, ищем просто папку include
+          if (-not $incDirs) {
+            $stdInclude = Get-ChildItem -Path "${{ inputs.source_dir }}" -Directory -Recurse | Where-Object { $_.Name -eq 'include' } | Select-Object -First 1
+            if ($stdInclude) { $incDirs += $stdInclude.FullName }
+          }
           
           if (-not $incDirs) {
-            Write-Error "В архиве вообще нет файлов .inc!"
+            Write-Error "Папка include не найдена!"
             exit 1
           }
           
-          # Формируем аргументы: -i и путь РАЗДЕЛЬНО (два элемента массива)
           $args = @("$($mainPwn.FullName)", "-ooutput.amx")
           foreach ($dir in $incDirs) {
             $args += "-i"
             $args += "$dir"
-            Write-Host "Добавляем путь: $dir"
+            Write-Host "Добавляем путь к инклюдам: $dir"
           }
           
           Write-Host "=== ЗАПУСК PAWNCC ==="
