@@ -55,40 +55,52 @@ async def help_msg(msg: Message):
 async def send_zip_msg(msg: Message):
     await msg.answer("Жду твой ZIP-архив! 📦")
 
-# --- ФУНКЦИЯ ДЛЯ GIGACHAT ---
+# --- ФУНКЦИЯ ДЛЯ GIGACHAT (С ОБХОДОМ) ---
 def ask_gigachat(prompt):
-    # 1. Получаем токен доступа (с User-Agent)
+    # Создаем сессию с отключенной проверкой SSL
+    session = requests.Session()
+    session.verify = False
+    
+    # 1. Получаем токен доступа (притворяемся реальным браузером Chrome)
     auth_url = "https://ngw.devices.sberbank.ru:9443/api/v2/oauth"
     auth_headers = {
         "Content-Type": "application/x-www-form-urlencoded",
         "Accept": "application/json",
         "RqUID": str(uuid.uuid4()),
         "Authorization": f"Basic {GIGACHAT_API_KEY}",
-        "User-Agent": "PawnCompilerBot/1.0"
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+        "Accept-Language": "ru-RU,ru;q=0.9,en-US;q=0.8,en;q=0.7",
+        "Connection": "keep-alive"
     }
     auth_data = {"scope": "GIGACHAT_API_PERS"}
     
-    auth_resp = requests.post(auth_url, headers=auth_headers, data=auth_data, verify=False)
+    try:
+        auth_resp = session.post(auth_url, headers=auth_headers, data=auth_data)
+    except Exception as e:
+        return None, f"Ошибка соединения: {str(e)}"
+        
     if auth_resp.status_code != 200:
-        return None, f"Ошибка авторизации GigaChat: {auth_resp.text}"
+        return None, f"Ошибка авторизации GigaChat (Status {auth_resp.status_code}): {auth_resp.text}"
     
     access_token = auth_resp.json().get("access_token")
     
-    # 2. Отправляем запрос к модели (с User-Agent)
+    # 2. Отправляем запрос к модели
     chat_url = "https://api.giga.chat/api/v1/chat/completions"
     chat_headers = {
         "Authorization": f"Bearer {access_token}",
         "Content-Type": "application/json",
-        "User-Agent": "PawnCompilerBot/1.0"
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+        "Accept": "application/json",
+        "Accept-Language": "ru-RU,ru;q=0.9,en-US;q=0.8,en;q=0.7"
     }
     chat_data = {
         "model": "GigaChat",
         "messages": [{"role": "user", "content": prompt}]
     }
     
-    chat_resp = requests.post(chat_url, headers=chat_headers, json=chat_data, verify=False)
+    chat_resp = session.post(chat_url, headers=chat_headers, json=chat_data)
     if chat_resp.status_code != 200:
-        return None, f"Ошибка GigaChat: {chat_resp.text}"
+        return None, f"Ошибка GigaChat (Status {chat_resp.status_code}): {chat_resp.text}"
     
     return chat_resp.json()["choices"][0]["message"]["content"], None
 
@@ -209,4 +221,4 @@ async def main():
     await dp.start_polling(bot)
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    asyncio.run(main())    
