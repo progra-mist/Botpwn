@@ -22,7 +22,6 @@ jobs:
       - name: Install Visual C++ 2010 Redistributable
         shell: pwsh
         run: |
-          # Скачиваем и устанавливаем Visual C++ 2010 Redistributable (x86)
           Invoke-WebRequest -Uri "https://download.microsoft.com/download/1/6/5/165255E7-1014-4D0A-B094-B6A430A6BFFC/vcredist_x86.exe" -OutFile "vcredist_x86.exe"
           Start-Process -FilePath ".\vcredist_x86.exe" -ArgumentList "/q", "/norestart" -Wait
           Write-Host "Visual C++ 2010 установлен."
@@ -36,13 +35,8 @@ jobs:
           $pawnccPath = Get-ChildItem -Path "pawnc" -Filter "pawncc.exe" -Recurse | Select-Object -First 1
           $pawncDll = Get-ChildItem -Path "pawnc" -Filter "pawnc.dll" -Recurse | Select-Object -First 1
           
-          if (-not $pawnccPath) { Write-Error "pawncc.exe не найден"; exit 1 }
-          if (-not $pawncDll) { Write-Error "pawnc.dll не найден"; exit 1 }
-          
           Copy-Item $pawnccPath.FullName -Destination "pawncc.exe"
           Copy-Item $pawncDll.FullName -Destination "pawnc.dll"
-          
-          Write-Host "Компилятор и DLL скопированы в корень."
 
       - name: Compile
         shell: pwsh
@@ -54,22 +48,21 @@ jobs:
           }
           Write-Host "=== КОМПИЛИРУЕМ: $($mainPwn.FullName) ==="
           
+          # Собираем все папки в МАССИВ
           $allDirs = Get-ChildItem -Path "${{ inputs.source_dir }}" -Directory -Recurse | Select-Object -ExpandProperty FullName
-          $incFlags = ""
+          
+          # Формируем массив аргументов для PowerShell
+          $args = @("$($mainPwn.FullName)", "-ooutput.amx")
           foreach ($dir in $allDirs) {
-            $incFlags += " -i`"$dir`""
+            $args += "-i`"$dir`""
           }
           
           Write-Host "=== ЗАПУСК PAWNCC ==="
-          # Запускаем и перенаправляем ВСЁ в файл, чтобы поймать даже самые скрытые ошибки
-          & ".\pawncc.exe" $mainPwn.FullName $incFlags -ooutput.amx *> compiler_output.txt
+          # Передаем массив аргументов через call-оператор (каждый аргумент отдельно)
+          $output = & ".\pawncc.exe" @args 2>&1
           
-          Write-Host "=== ВЫВОД КОМПИЛЯТОРА ==="
-          if (Test-Path "compiler_output.txt") {
-            Get-Content "compiler_output.txt" | Write-Host
-          } else {
-            Write-Host "Файл вывода не создан (компилятор упал мгновенно)."
-          }
+          Write-Host "=== ВЫВОД ==="
+          Write-Host $output
           
           if (-not (Test-Path "output.amx")) {
             Write-Error "Файл output.amx не создан."
