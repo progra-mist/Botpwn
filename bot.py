@@ -69,18 +69,27 @@ def init_db():
     download_db()
     conn = sqlite3.connect("users.db")
     c = conn.cursor()
+    
+    # Таблица пользователей
     c.execute('''CREATE TABLE IF NOT EXISTS users
                  (user_id INTEGER PRIMARY KEY, 
                   username TEXT,
                   premium_until TEXT,
                   daily_count INTEGER,
                   last_date TEXT)''')
-    # В таблицу промокодов добавлен столбец max_uses
+                  
+    # Таблица промокодов
     c.execute('''CREATE TABLE IF NOT EXISTS promocodes
                  (code TEXT PRIMARY KEY, 
                   days INTEGER, 
-                  max_uses INTEGER,
                   used_by TEXT)''')
+                  
+    # Проверяем, есть ли столбец max_uses, если нет — добавляем
+    try:
+        c.execute("ALTER TABLE promocodes ADD COLUMN max_uses INTEGER DEFAULT 99999")
+    except sqlite3.OperationalError:
+        pass # Столбец уже есть
+        
     conn.commit()
     conn.close()
     upload_db()
