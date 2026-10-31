@@ -24,50 +24,48 @@ jobs:
         run: |
           Invoke-WebRequest -Uri "https://github.com/pawn-lang/compiler/releases/download/v3.10.10/pawnc-3.10.10-windows.zip" -OutFile "pawnc.zip"
           Expand-Archive -Path "pawnc.zip" -DestinationPath "pawnc"
+          
           $pawnccPath = Get-ChildItem -Path "pawnc" -Filter "pawncc.exe" -Recurse | Select-Object -First 1
-          $pawnccDir = $pawnccPath.DirectoryName
-          echo "$pawnccDir" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+          $pawncDll = Get-ChildItem -Path "pawnc" -Filter "pawnc.dll" -Recurse | Select-Object -First 1
+          
+          if (-not $pawncDll) {
+            Write-Error "pawnc.dll не найдена в архиве!"
+            exit 1
+          }
+          
+          Copy-Item $pawncDll.FullName -Destination "pawnc.dll"
+          
           echo "PAWNCC_PATH=$($pawnccPath.FullName)" >> $env:GITHUB_ENV
-          Write-Host "Компилятор найден в: $pawnccDir"
+          Write-Host "Компилятор: $($pawnccPath.FullName)"
+          Write-Host "DLL скопирована в корень: pawnc.dll"
 
       - name: Compile
-        shell: pwsh
+        shell: cmd
         run: |
-          $mainPwn = Get-ChildItem -Path "${{ inputs.source_dir }}" -Filter "*.pwn" -Recurse | Where-Object { $_.FullName -notmatch '\\include\\' } | Select-Object -First 1
-          if (-not $mainPwn) {
-            Write-Error "Главный файл .pwn не найден"
-            exit 1
-          }
-          Write-Host "=== КОМПИЛИРУЕМ: $($mainPwn.FullName) ==="
+          set MAIN_PWN=
+          for /f "delims=" %%i in ('dir /b /s "${{ inputs.source_dir }}\*.pwn" ^| findstr /v /i "\\include\\"') do (
+            set MAIN_PWN=%%i
+            goto :found
+          )
+          :found
+          if "%MAIN_PWN%"=="" (
+            echo Главный файл .pwn не найден
+            exit /b 1
+          )
+          echo === КОМПИЛИРУЕМ: %MAIN_PWN% ===
           
-          $allDirs = Get-ChildItem -Path "${{ inputs.source_dir }}" -Directory -Recurse | Select-Object -ExpandProperty FullName
-          $incFlags = ""
-          foreach ($dir in $allDirs) {
-            $incFlags += " -i`"$dir`""
-          }
+          set INC_FLAGS=
+          for /f "delims=" %%d in ('dir /b /s /ad "${{ inputs.source_dir }}"') do (
+            set INC_FLAGS=%INC_FLAGS% -i"%%d"
+          )
           
-          Write-Host "=== ЗАПУСК PAWNCC ==="
+          echo === ЗАПУСК PAWNCC ===
+          "%PAWNCC_PATH%" "%MAIN_PWN%" %INC_FLAGS% -ooutput.amx
           
-          # Перенаправляем ВЕСЬ вывод (и ошибки, и обычный) в файл
-          $pawnccDir = Split-Path $env:PAWNCC_PATH -Parent
-          $env:PATH = "$pawnccDir;$env:PATH"
-          
-          # Запускаем и сохраняем вывод в файл
-          & "$env:PAWNCC_PATH" $mainPwn.FullName $incFlags -ooutput.amx *> compiler_output.txt
-          
-          # Читаем файл и выводим в лог
-          Write-Host "=== ВЫВОД КОМПИЛЯТОРА ==="
-          if (Test-Path "compiler_output.txt") {
-            Get-Content "compiler_output.txt" | Write-Host
-          } else {
-            Write-Host "Файл вывода не создан (компилятор даже не запустился)"
-          }
-          
-          # Проверяем, создался ли файл
-          if (-not (Test-Path "output.amx")) {
-            Write-Error "Файл output.amx не создан. Ошибка компиляции."
-            exit 1
-          }
+          if not exist output.amx (
+            echo Файл output.amx не создан. Ошибка компиляции.
+            exit /b 1
+          )
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
