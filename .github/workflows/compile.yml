@@ -35,17 +35,15 @@ jobs:
           Copy-Item $pawnccPath.FullName -Destination "pawncc.exe"
           Copy-Item $pawncDll.FullName -Destination "pawnc.dll"
 
-      - name: Compile in Short Path
+      - name: Compile by Copying Includes
         shell: pwsh
         run: |
           # 1. Создаем короткую папку C:\work
           New-Item -Path "C:\work" -ItemType Directory -Force
-          
-          # 2. Копируем туда компилятор
           Copy-Item "pawncc.exe" -Destination "C:\work\pawncc.exe"
           Copy-Item "pawnc.dll" -Destination "C:\work\pawnc.dll"
           
-          # 3. Ищем главный .pwn и папку include
+          # 2. Ищем главный .pwn и папку include
           $mainPwn = Get-ChildItem -Path "${{ inputs.source_dir }}" -Filter "*.pwn" -Recurse | Where-Object { $_.FullName -notmatch '\\include\\' } | Select-Object -First 1
           if (-not $mainPwn) { Write-Error "Главный .pwn не найден"; exit 1 }
           
@@ -53,22 +51,25 @@ jobs:
           if (-not $incDir) {
              $incDir = Get-ChildItem -Path "${{ inputs.source_dir }}" -Directory -Recurse | Where-Object { $_.Name -eq 'include' } | Select-Object -First 1
           }
-          
           if (-not $incDir) { Write-Error "Папка include не найдена"; exit 1 }
           
-          # 4. Копируем главный файл и инклюды в C:\work
-          # (чтобы компилятор видел их в одной папке)
-          Copy-Item $mainPwn.FullName -Destination "C:\work\main.pwn"
+          # 3. Копируем главный файл в C:\work
+          $destPwn = "C:\work\main.pwn"
+          Copy-Item $mainPwn.FullName -Destination $destPwn
           
-          # Копируем папку include целиком
-          Copy-Item -Path $incDir.FullName -Destination "C:\work\include" -Recurse -Force
+          # 4. Копируем ВСЕ файлы .inc прямо в C:\work (рядом с main.pwn)
+          $incFiles = Get-ChildItem -Path $incDir.FullName -Filter "*.inc" -Recurse
+          foreach ($file in $incFiles) {
+            # Копируем в корень C:\work, сохраняя имена (без вложенных папок)
+            Copy-Item $file.FullName -Destination "C:\work\" -Force
+          }
           
-          # 5. Запускаем компилятор в короткой папке
+          # 5. Запускаем компилятор БЕЗ флагов -i, просто "main.pwn"
           Set-Location "C:\work"
-          Write-Host "=== ЗАПУСК В КОРОТКОЙ ПАПКЕ ==="
+          Write-Host "=== ЗАПУСК В КОРОТКОЙ ПАПКЕ (ИНКЛЮДЫ РЯДОМ) ==="
           
-          # Запускаем с относительными путями
-          $output = & ".\pawncc.exe" "main.pwn" "-iinclude" -ooutput.amx 2>&1
+          # pawncc.exe main.pwn -ooutput.amx
+          $output = & ".\pawncc.exe" "main.pwn" "-ooutput.amx" 2>&1
           
           Write-Host "=== ВЫВОД ==="
           Write-Host $output
