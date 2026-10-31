@@ -26,7 +26,10 @@ jobs:
           Expand-Archive -Path "pawnc.zip" -DestinationPath "pawnc"
           $pawnccPath = Get-ChildItem -Path "pawnc" -Filter "pawncc.exe" -Recurse | Select-Object -First 1
           $pawnccDir = $pawnccPath.DirectoryName
+          # Добавляем папку с компилятором в PATH
           echo "$pawnccDir" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+          # Сохраняем путь к компилятору в переменную окружения для следующего шага
+          echo "PAWNCC_PATH=$($pawnccPath.FullName)" >> $env:GITHUB_ENV
           Write-Host "Компилятор найден в: $pawnccDir"
 
       - name: Compile
@@ -45,14 +48,20 @@ jobs:
             $incFlags += " -i`"$dir`""
           }
           
-          # Запускаем компилятор и ловим вывод
           Write-Host "=== ЗАПУСК PAWNCC ==="
-          $output = & pawncc $mainPwn.FullName $incFlags -ooutput.amx 2>&1
-          Write-Host $output
+          
+          # Запускаем компилятор, указывая полный путь и добавляя папку с DLL в PATH для этого процесса
+          $pawnccDir = Split-Path $env:PAWNCC_PATH -Parent
+          $env:PATH = "$pawnccDir;$env:PATH"
+          
+          # Запускаем и ловим вывод
+          & "$env:PAWNCC_PATH" $mainPwn.FullName $incFlags -ooutput.amx 2>&1 | Tee-Object -Variable output
           
           # Проверяем, создался ли файл
           if (-not (Test-Path "output.amx")) {
             Write-Error "Файл output.amx не создан. Ошибка компиляции."
+            Write-Host "Вывод компилятора:"
+            Write-Host $output
             exit 1
           }
 
