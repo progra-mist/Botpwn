@@ -24,39 +24,31 @@ jobs:
       - name: Compile
         shell: bash
         run: |
-          # 1. Ищем главный .pwn СТРОГО в папке gamemodes
-          MAIN_PWN=$(find "${{ inputs.source_dir }}" -type f -path "*/gamemodes/*.pwn" | head -n 1)
+          echo "=== Сканируем архив на наличие файлов ==="
           
-          # Если вдруг папки gamemodes нет, ищем любой .pwn, но НЕ в include
-          if [ -z "$MAIN_PWN" ]; then
-            echo "::warning::Папка gamemodes не найдена, ищем любой .pwn вне include..."
-            MAIN_PWN=$(find "${{ inputs.source_dir }}" -type f -name "*.pwn" -not -path "*/include/*" | head -n 1)
-          fi
+          # 1. Ищем ВСЕ файлы .pwn, КРОМЕ тех, что лежат в папках include
+          MAIN_PWN=$(find "${{ inputs.source_dir }}" -type f -name "*.pwn" -not -path "*/include/*" | head -n 1)
           
           if [ -z "$MAIN_PWN" ]; then
-            echo "::error::Главный файл .pwn не найден"
+            echo "::error::Главный файл .pwn не найден (исключены папки include)."
             exit 1
           fi
 
           echo "=== КОМПИЛИРУЕМ: $MAIN_PWN ==="
 
-          # 2. Ищем папку include (сначала стандартную pawno/include)
-          USER_INC_DIR=$(find "${{ inputs.source_dir }}" -type d -path "*/pawno/include" | head -n 1)
+          # 2. Собираем АБСОЛЮТНО ВСЕ папки, где есть файлы .inc, .lang, .txt
+          # Это нужно для того, чтобы компилятор нашел и инклюды, и файлы перевода (lang)
+          INC_DIRS=$(find "${{ inputs.source_dir }}" -type f \( -name "*.inc" -o -name "*.lang" -o -name "*.txt" \) -printf '%h\n' | sort -u)
           
-          # Если такой нет, ищем просто любую папку include
-          if [ -z "$USER_INC_DIR" ]; then
-            USER_INC_DIR=$(find "${{ inputs.source_dir }}" -type d -name "include" | head -n 1)
-          fi
-          
-          if [ -z "$USER_INC_DIR" ]; then
-            echo "::error::Папка include не найдена."
-            exit 1
-          fi
-
-          echo "=== ИСПОЛЬЗУЕМ ИНКЛЮДЫ: $USER_INC_DIR ==="
+          # Формируем флаги -i для каждой найденной папки
+          INC_FLAGS=""
+          for dir in $INC_DIRS; do
+            INC_FLAGS="$INC_FLAGS -i$dir"
+            echo "Добавляем путь для поиска: $dir"
+          done
 
           # 3. Запускаем компиляцию
-          pawncc "$MAIN_PWN" "-i$USER_INC_DIR" -ooutput.amx
+          pawncc "$MAIN_PWN" $INC_FLAGS -ooutput.amx
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
