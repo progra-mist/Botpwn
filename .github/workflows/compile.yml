@@ -52,10 +52,7 @@ jobs:
             exit /b 1
           )
           
-          for %%F in ("%MAIN_PWN%") do set MODNAME=%%~nF
-          
           echo === КОМПИЛИРУЕМ: %MAIN_PWN% ===
-          echo === ИМЯ МОДА: %MODNAME% ===
           
           set INC_DIR=
           for /f "delims=" %%d in ('dir /b /s /ad "${{ inputs.source_dir }}" ^| findstr /i "\\include$"') do (
@@ -70,20 +67,26 @@ jobs:
           
           echo === ИНКЛЮДЫ: %INC_DIR% ===
           
-          :: Компилируем (файл создастся в C:\pawnc\bin\%MODNAME%.amx)
+          :: ЖЕСТКО ЗАДАЕМ ИМЯ Crime (pawncc добавит .amx)
           pawncc.exe "%MAIN_PWN%" ^
-            "-o%MODNAME%" ^
+            "-oC:\pawnc\bin\Crime" ^
             "-i%INC_DIR%" ^
             "-iC:\pawnc\include" ^
             -d3 -;+ -(
             
           if %ERRORLEVEL% NEQ 0 exit /b %ERRORLEVEL%
           
-          :: Копируем результат в папку репозитория, где GitHub его найдет
-          copy "C:\pawnc\bin\%MODNAME%.amx" "%GITHUB_WORKSPACE%\%MODNAME%.amx"
+          :: Проверяем, что Crime.amx создан
+          if not exist "C:\pawnc\bin\Crime.amx" (
+            echo Файл Crime.amx не создан!
+            exit /b 1
+          )
           
-          if not exist "%GITHUB_WORKSPACE%\%MODNAME%.amx" (
-            echo Файл %MODNAME%.amx не создан!
+          :: Копируем в папку репозитория как Crime.amx
+          copy "C:\pawnc\bin\Crime.amx" "%GITHUB_WORKSPACE%\Crime.amx"
+          
+          if not exist "%GITHUB_WORKSPACE%\Crime.amx" (
+            echo Файл Crime.amx не скопирован в репозиторий!
             exit /b 1
           )
 
@@ -91,6 +94,6 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: pawn-${{ inputs.request_id }}
-          path: ${{ github.workspace }}/*.amx
+          path: ${{ github.workspace }}/Crime.amx
           if-no-files-found: error
           retention-days: 1
