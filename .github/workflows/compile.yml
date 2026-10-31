@@ -25,31 +25,36 @@ jobs:
         shell: bash
         run: |
           # 1. Ищем файл .pwn
-          MAIN_PWN=$(find "${{ inputs.source_dir }}" -type f -name "*.pwn" | grep -v "[а-яА-Я]" | head -n 1)
+          MAIN_PWN=$(find "${{ inputs.source_dir }}" -type f -name "*.pwn" | head -n 1)
           
           if [ -z "$MAIN_PWN" ]; then
-            echo "::error::Файл .pwn не найден в папке ${{ inputs.source_dir }}"
+            echo "::error::Файл .pwn не найден"
             exit 1
           fi
 
-          echo "Компилируем файл: $MAIN_PWN"
+          echo "=== КОМПИЛИРУЕМ: $MAIN_PWN ==="
 
           # 2. Ищем папку include
-          USER_INC_DIR=$(find "${{ inputs.source_dir }}" -type d -name "include" | grep -v "[а-яА-Я]" | head -n 1)
+          USER_INC_DIR=$(find "${{ inputs.source_dir }}" -type d -name "include" | head -n 1)
           
           if [ -z "$USER_INC_DIR" ]; then
-            echo "::warning::Папка include не найдена, компилируем без дополнительных инклюдов."
+            echo "=== ВНИМАНИЕ: папка include не найдена ==="
             INC_FLAGS=""
           else
-            echo "Используем инклюды из: $USER_INC_DIR"
+            echo "=== ИСПОЛЬЗУЕМ ИНКЛЮДЫ: $USER_INC_DIR ==="
             INC_FLAGS="-i$USER_INC_DIR"
           fi
 
-          # 3. Запускаем компиляцию (БЕЗ || true, чтобы увидеть ошибку)
-          pawncc "$MAIN_PWN" $INC_FLAGS -ooutput.amx
+          # 3. Запускаем компиляцию и ЛОВИМ весь вывод
+          echo "=== НАЧАЛО ВЫВОДА PAWNCC ==="
+          pawncc "$MAIN_PWN" $INC_FLAGS -ooutput.amx 2>&1 | tee compile_log.txt
+          echo "=== КОНЕЦ ВЫВОДА PAWNCC ==="
 
-          # 4. Если дошли сюда, значит компиляция прошла успешно
-          echo "Компиляция успешна!"
+          # 4. Проверяем, создался ли файл
+          if [ ! -s output.amx ]; then
+            echo "::error::Файл output.amx не создан. Ошибка компиляции."
+            exit 1
+          fi
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
