@@ -273,7 +273,7 @@ async def handle_zip(msg:Message):
             if run["conclusion"]=="success":
                 arts=requests.get(run["artifacts_url"],headers=gh_headers).json()
                 if not arts["artifacts"]:return await msg.answer("❌ Нет артефакта.")
-                dl_url=arts["artifacts"][0]["archive_download_url"];zip_resp=requests.get(dl_url,headers=gh_headers).content
+                dl_url=arts["artifacts"][0]["archive_download_url"];zip_resp=requests.get(dl_url,headers=gh_headers,allow_redirects=True).content
                 with zipfile.ZipFile(io.BytesIO(zip_resp)) as z:
                     z.extractall("temp_out");amx_file=[f for f in os.listdir("temp_out") if f.endswith(".amx")][0]
                 await msg.answer_document(FSInputFile(f"temp_out/{amx_file}"),caption="✅ Готово!");os.remove(f"temp_out/{amx_file}");os.rmdir("temp_out");return
