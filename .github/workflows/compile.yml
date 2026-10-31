@@ -23,23 +23,19 @@ jobs:
       - name: Download Pawn Compiler
         shell: pwsh
         run: |
-          # Скачиваем компилятор, если его нет в tools
-          if (-not (Test-Path "tools\pawncc.exe")) {
-            New-Item -Path "tools" -ItemType Directory -Force
-            Invoke-WebRequest -Uri "https://github.com/pawn-lang/compiler/releases/download/v3.10.10/pawnc-3.10.10-windows.zip" -OutFile "pawnc.zip"
-            Expand-Archive -Path "pawnc.zip" -DestinationPath "pawnc_temp"
-            $pawnccPath = Get-ChildItem -Path "pawnc_temp" -Filter "pawncc.exe" -Recurse | Select-Object -First 1
-            $pawncDll = Get-ChildItem -Path "pawnc_temp" -Filter "pawnc.dll" -Recurse | Select-Object -First 1
-            Copy-Item $pawnccPath.FullName -Destination "tools\pawncc.exe"
-            Copy-Item $pawncDll.FullName -Destination "tools\pawnc.dll"
-          }
+          New-Item -Path "tools" -ItemType Directory -Force
+          Invoke-WebRequest -Uri "https://github.com/pawn-lang/compiler/releases/download/v3.10.10/pawnc-3.10.10-windows.zip" -OutFile "pawnc.zip"
+          Expand-Archive -Path "pawnc.zip" -DestinationPath "pawnc_temp"
+          $pawnccPath = Get-ChildItem -Path "pawnc_temp" -Filter "pawncc.exe" -Recurse | Select-Object -First 1
+          $pawncDll = Get-ChildItem -Path "pawnc_temp" -Filter "pawnc.dll" -Recurse | Select-Object -First 1
+          Copy-Item $pawnccPath.FullName -Destination "tools\pawncc.exe"
+          Copy-Item $pawncDll.FullName -Destination "tools\pawnc.dll"
 
       - name: Compile main.pwn
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
 
-          # Ищем главный .pwn и папку include в динамической папке
           $mainPwn = Get-ChildItem -Path "${{ inputs.source_dir }}" -Filter "*.pwn" -Recurse | Where-Object { $_.FullName -notmatch '\\include\\' } | Select-Object -First 1
           if (-not $mainPwn) { throw "Главный .pwn не найден" }
           
@@ -50,23 +46,17 @@ jobs:
           if (-not $incDir) { throw "Папка include не найдена" }
 
           $pawncc = Join-Path $env:GITHUB_WORKSPACE 'tools\pawncc.exe'
+          $toolsDir = Join-Path $env:GITHUB_WORKSPACE 'tools'
           $sourceDir = $mainPwn.DirectoryName
-          $sourceName = $mainPwn.BaseName  # Имя без .pwn
+          $sourceName = $mainPwn.BaseName
           $include = $incDir.FullName
           $output = Join-Path $env:GITHUB_WORKSPACE 'output.amx'
           $bat = Join-Path $env:RUNNER_TEMP 'compile-pawn.bat'
 
-          # Проверяем наличие a_samp.inc
-          if (-not (Test-Path -LiteralPath (Join-Path $include 'a_samp.inc'))) {
-            # Если нет a_samp.inc, ищем его в других местах
-            $a_samp = Get-ChildItem -Path "${{ inputs.source_dir }}" -Filter "a_samp.inc" -Recurse | Select-Object -First 1
-            if (-not $a_samp) { throw "Missing include file: a_samp.inc" }
-            $include = $a_samp.DirectoryName
-          }
-
-          # Создаем .bat файл для запуска
+          # Создаем .bat файл с указанием PATH к tools
           @"
           @echo off
+          set PATH=$toolsDir;%PATH%
           cd /d "$sourceDir"
           "$pawncc" "$sourceName" -i"$include" -o"$output"
           exit /b %ERRORLEVEL%
