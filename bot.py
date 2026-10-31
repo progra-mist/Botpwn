@@ -41,6 +41,7 @@ class AdminState(StatesGroup):
 class PromoState(StatesGroup):
     waiting_for_name = State()
     waiting_for_days = State()
+    waiting_for_limit = State()
     waiting_for_activation = State()
 
 # --- БАЗА ДАННЫХ ---
@@ -74,9 +75,11 @@ def init_db():
                   premium_until TEXT,
                   daily_count INTEGER,
                   last_date TEXT)''')
+    # В таблицу промокодов добавлен столбец max_uses
     c.execute('''CREATE TABLE IF NOT EXISTS promocodes
                  (code TEXT PRIMARY KEY, 
                   days INTEGER, 
+                  max_uses INTEGER,
                   used_by TEXT)''')
     conn.commit()
     conn.close()
@@ -287,7 +290,7 @@ async def activate_promo(msg: Message, state: FSMContext):
     
     conn = sqlite3.connect("users.db")
     c = conn.cursor()
-    c.execute("SELECT days, used_by FROM promocodes WHERE code = ?", (code,))
+    c.execute("SELECT days, max_uses, used_by FROM promocodes WHERE code = ?", (code,))
     row = c.fetchone()
     
     if not row:
@@ -296,9 +299,15 @@ async def activate_promo(msg: Message, state: FSMContext):
         await state.clear()
         return
         
-    days, used_by = row
+    days, max_uses, used_by = row
     used_list = used_by.split(",") if used_by else []
     
+    if len(used_list) >= max_uses:
+        conn.close()
+        await msg.answer("❌ Этот промокод уже использован максимальное количество раз.")
+        await state.clear()
+        return
+        
     if str(user_id) in used_list:
         conn.close()
         await msg.answer("❌ Ты уже активировал этот промокод.")
@@ -350,21 +359,36 @@ async def create_promo_days(msg: Message, state: FSMContext):
         days = int(msg.text.strip())
     except ValueError:
         return await msg.answer("Введи число (1, 30, 365 или -1).")
+    
+    await state.update_data(promo_days=days)
+    await msg.answer("Сколько раз можно активировать промокод? (Введи число от 1 до 99999, где 99999 — бесконечный):")
+    await state.set_state(PromoState.waiting_for_limit)
+
+@dp.message(PromoState.waiting_for_limit)
+async def create_promo_limit(msg: Message, state: FSMContext):
+    if msg.from_user.id != ADMIN_ID: return await msg.answer("⛔ Нет прав.")
+    try:
+        limit = int(msg.text.strip())
+        if limit < 1 or limit > 99999:
+            raise ValueError
+    except ValueError:
+        return await msg.answer("Введи число от 1 до 99999.")
         
     data = await state.get_data()
     code = data.get("promo_name")
+    days = data.get("promo_days")
     
     conn = sqlite3.connect("users.db")
     c = conn.cursor()
-    c.execute("INSERT INTO promocodes (code, days, used_by) VALUES (?, ?, '')", (code, days))
+    c.execute("INSERT INTO promocodes (code, days, max_uses, used_by) VALUES (?, ?, ?, '')", (code, days, limit))
     conn.commit()
     conn.close()
     upload_db()
     
     if days == -1:
-        await msg.answer(f"✅ Промокод <code>{code}</code> создан! (Пожизненный).", parse_mode="HTML")
+        await msg.answer(f"✅ Промокод <code>{code}</code> создан! (Пожизненный, лимит: {limit if limit < 99999 else '∞'}).", parse_mode="HTML")
     else:
-        await msg.answer(f"✅ Промокод <code>{code}</code> создан! ({days} дн.).", parse_mode="HTML")
+        await msg.answer(f"✅ Промокод <code>{code}</code> создан! ({days} дн., лимит: {limit if limit < 99999 else '∞'}).", parse_mode="HTML")
     await state.clear()
 
 @dp.message(F.text == "❓ Помощь")
