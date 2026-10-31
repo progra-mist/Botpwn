@@ -13,6 +13,7 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
+# --- НАСТРОЙКИ ---
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 GITHUB_TOKEN = os.getenv("GITHUB_TOKEN")
 GIGACHAT_API_KEY = os.getenv("GIGACHAT_API_KEY")
@@ -27,6 +28,7 @@ gh_headers = {
     "Accept": "application/vnd.github+json"
 }
 
+# --- КНОПКИ ---
 def get_main_keyboard(user_id):
     kb = [
         [KeyboardButton(text="🚀 Начать")],
@@ -53,13 +55,16 @@ async def help_msg(msg: Message):
 async def send_zip_msg(msg: Message):
     await msg.answer("Жду твой ZIP-архив! 📦")
 
+# --- ФУНКЦИЯ ДЛЯ GIGACHAT ---
 def ask_gigachat(prompt):
+    # 1. Получаем токен доступа (с User-Agent)
     auth_url = "https://ngw.devices.sberbank.ru:9443/api/v2/oauth"
     auth_headers = {
         "Content-Type": "application/x-www-form-urlencoded",
         "Accept": "application/json",
         "RqUID": str(uuid.uuid4()),
-        "Authorization": f"Basic {GIGACHAT_API_KEY}"
+        "Authorization": f"Basic {GIGACHAT_API_KEY}",
+        "User-Agent": "PawnCompilerBot/1.0"
     }
     auth_data = {"scope": "GIGACHAT_API_PERS"}
     
@@ -69,10 +74,12 @@ def ask_gigachat(prompt):
     
     access_token = auth_resp.json().get("access_token")
     
+    # 2. Отправляем запрос к модели (с User-Agent)
     chat_url = "https://api.giga.chat/api/v1/chat/completions"
     chat_headers = {
         "Authorization": f"Bearer {access_token}",
-        "Content-Type": "application/json"
+        "Content-Type": "application/json",
+        "User-Agent": "PawnCompilerBot/1.0"
     }
     chat_data = {
         "model": "GigaChat",
@@ -85,6 +92,7 @@ def ask_gigachat(prompt):
     
     return chat_resp.json()["choices"][0]["message"]["content"], None
 
+# --- ИИ РЕМОНТ ---
 @dp.message(F.text == "🛠 Починить репозиторий (ИИ)")
 async def fix_repo(msg: Message):
     if msg.from_user.id != ADMIN_ID:
@@ -148,6 +156,7 @@ async def apply_fix(msg: Message):
     await msg.answer("✅ Файл обновлен! Скинь архив заново для проверки.")
     del pending_fix
 
+# --- КОМПИЛЯЦИЯ ---
 @dp.message(F.document)
 async def handle_zip(msg: Message):
     if not msg.document.file_name.endswith(".zip"):
