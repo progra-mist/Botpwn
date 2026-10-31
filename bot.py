@@ -16,7 +16,9 @@ load_dotenv()
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 GITHUB_TOKEN = os.getenv("GITHUB_TOKEN")
 DEEPSEEK_API_KEY = os.getenv("DEEPSEEK_API_KEY")
-ADMIN_ID = int(os.getenv("ADMIN_ID", 0))
+
+# Твой ID прописан прямо тут, чтобы кнопка 100% появилась
+ADMIN_ID = 8827502259 
 REPO = "progra-mist/Botpwn" 
 
 bot = Bot(token=BOT_TOKEN)
@@ -30,11 +32,11 @@ gh_headers = {
 # --- КНОПКИ ---
 def get_main_keyboard(user_id):
     kb = [
+        [KeyboardButton(text="🚀 Начать")],
         [KeyboardButton(text="📂 Отправить мод ZIP")],
         [KeyboardButton(text="❓ Помощь")]
     ]
-    # Кнопка ИИ только для админа
-    if str(user_id) == str(ADMIN_ID):
+    if user_id == ADMIN_ID:
         kb.insert(1, [KeyboardButton(text="🛠 Починить репозиторий (ИИ)")])
     return ReplyKeyboardMarkup(keyboard=kb, resize_keyboard=True)
 
@@ -45,6 +47,10 @@ async def start(msg: Message):
         "Скинь мне ZIP с модом для компиляции.",
         reply_markup=get_main_keyboard(msg.from_user.id)
     )
+
+@dp.message(F.text == "🚀 Начать")
+async def start_btn(msg: Message):
+    await start(msg)
 
 @dp.message(F.text == "❓ Помощь")
 async def help_msg(msg: Message):
@@ -57,7 +63,7 @@ async def send_zip_msg(msg: Message):
 # --- ИИ РЕМОНТ ---
 @dp.message(F.text == "🛠 Починить репозиторий (ИИ)")
 async def fix_repo(msg: Message):
-    if str(msg.from_user.id) != str(ADMIN_ID):
+    if msg.from_user.id != ADMIN_ID:
         return await msg.answer("⛔ У тебя нет прав на это действие.")
 
     await msg.answer("🧠 Скачиваю последний лог ошибки и файл compile.yml...")
@@ -105,7 +111,7 @@ async def fix_repo(msg: Message):
 
 @dp.message(F.text == "✅ Применить")
 async def apply_fix(msg: Message):
-    if str(msg.from_user.id) != str(ADMIN_ID):
+    if msg.from_user.id != ADMIN_ID:
         return await msg.answer("⛔ У тебя нет прав.")
     
     if 'pending_fix' not in globals():
