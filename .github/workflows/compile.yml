@@ -14,6 +14,8 @@ on:
 jobs:
   compile-windows:
     runs-on: windows-2022
+    permissions:
+      contents: write # <--- ВАЖНО: даем права на создание релиза
 
     steps:
       - name: Checkout repository
@@ -41,50 +43,27 @@ jobs:
         shell: cmd
         run: |
           cd /D "C:\pawnc\bin"
-          
           set MAIN_PWN=
           for /f "delims=" %%i in ('dir /b /s "${{ inputs.source_dir }}\*.pwn" ^| findstr /v /i "\\include\\"') do (
             set MAIN_PWN=%%i
             goto :found
           )
           :found
-          if "%MAIN_PWN%"=="" (
-            echo Главный .pwn не найден
-            exit /b 1
-          )
-          
-          echo === КОМПИЛИРУЕМ: %MAIN_PWN% ===
-          
+          if "%MAIN_PWN%"=="" ( echo Главный .pwn не найден & exit /b 1 )
           set INC_DIR=
           for /f "delims=" %%d in ('dir /b /s /ad "${{ inputs.source_dir }}" ^| findstr /i "\\include$"') do (
             set INC_DIR=%%d
             goto :found_inc
           )
           :found_inc
-          if "%INC_DIR%"=="" (
-            echo Папка include не найдена, используем стандартную...
-            set INC_DIR=C:\pawnc\include
-          )
-          
-          echo === ИНКЛЮДЫ: %INC_DIR% ===
-          
-          pawncc.exe "%MAIN_PWN%" ^
-            "-o%GITHUB_WORKSPACE%\Crime" ^
-            "-i%INC_DIR%" ^
-            "-iC:\pawnc\include" ^
-            -d3 -;+ -(
-            
+          if "%INC_DIR%"=="" ( set INC_DIR=C:\pawnc\include )
+          pawncc.exe "%MAIN_PWN%" "-o%GITHUB_WORKSPACE%\Crime" "-i%INC_DIR%" "-iC:\pawnc\include" -d3 -;+ -(
           if %ERRORLEVEL% NEQ 0 exit /b %ERRORLEVEL%
-          
-          if not exist "%GITHUB_WORKSPACE%\Crime.amx" (
-            echo Файл Crime.amx не создан!
-            exit /b 1
-          )
+          if not exist "%GITHUB_WORKSPACE%\Crime.amx" ( echo Файл Crime.amx не создан! & exit /b 1 )
 
-      - name: Upload Crime.amx
-        uses: actions/upload-artifact@v4
+      - name: Create Release and Upload
+        uses: softprops/action-gh-release@v2
         with:
-          name: pawn-${{ inputs.request_id }}
-          path: Crime.amx
-          if-no-files-found: error
-          retention-days: 1
+          tag_name: build-${{ inputs.request_id }}
+          name: Build ${{ inputs.request_id }}
+          files: Crime.amx
