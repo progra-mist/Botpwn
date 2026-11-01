@@ -29,7 +29,7 @@ jobs:
           }
           choco install vcredist2010 vcredist2015 --no-progress -y --ignore-checksums --limit-output
 
-      - name: Download Pawn Compiler
+      - name: Download and Setup Pawn Compiler
         shell: powershell
         run: |
           $url = "https://github.com/pawn-lang/compiler/releases/download/v3.10.10/pawnc-3.10.10-windows.zip"
@@ -42,12 +42,28 @@ jobs:
           
           Expand-Archive -Path "pawnc.zip" -DestinationPath "C:\pawnc" -Force
           
+          # Ищем pawncc.exe где угодно внутри C:\pawnc
+          $pawncc = Get-ChildItem -Path "C:\pawnc" -Filter "pawncc.exe" -Recurse | Select-Object -First 1
+          
+          if (-not $pawncc) {
+            Write-Error "pawncc.exe не найден!"
+            exit 1
+          }
+          
+          # Создаем папку bin и копируем туда компилятор и все файлы рядом
+          $binDir = "C:\pawnc\bin"
+          if (-not (Test-Path $binDir)) { New-Item -ItemType Directory -Path $binDir | Out-Null }
+          
+          $sourceDir = $pawncc.DirectoryName
+          Copy-Item -Path "$sourceDir\*" -Destination $binDir -Recurse -Force
+          
           if (-not (Test-Path "C:\pawnc\bin\pawncc.exe")) {
-            Write-Error "pawncc.exe не найден в C:\pawnc\bin"
+            Write-Error "Не удалось скопировать pawncc.exe в C:\pawnc\bin"
             exit 1
           }
           
           Remove-Item "pawnc.zip"
+          Write-Host "Компилятор готов в C:\pawnc\bin"
 
       - name: Compile
         shell: cmd
