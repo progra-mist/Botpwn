@@ -268,7 +268,7 @@ async def handle_zip(msg:Message):
     if not check_premium(user_id):update_user_count(user_id)
     start_time=time.time()
     for _ in range(200):
-        await asyncio.sleep(5);runs=requests.get(f"https://api.github.com/repos/{REPO}/actions/runs",headers=gh_headers).json();run=next((r for r in runs["workflow_runs"] if r["name"]=="Compile Pawn" and datetime.strptime(r["created_at"],"%Y-%m-%dT%H:%M:%SZ").timestamp()>start_time-10),None)
+        run=next((r for r in runs["workflow_runs"] if r["name"]==f"Compile Pawn [{request_id}]"),None)
         if run and run["status"]=="completed":
             if run["conclusion"]=="success":
                 arts=requests.get(run["artifacts_url"],headers=gh_headers).json()
