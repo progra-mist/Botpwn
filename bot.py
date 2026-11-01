@@ -294,4 +294,4 @@ async def help_msg(msg:Message):await msg.answer("1. Скинь ZIP\n2. Забе
 @dp.message(F.text=="📂 Отправить мод ZIP")
 async def send_zip_msg(msg:Message):await msg.answer("Жду ZIP! 📦")
 async def main():await dp.start_polling(bot)
-if __name__=="__main__":asyncio.run(main())ata.startswith("user_give_comp_"
+if __name__=="__main__":asyncio.run(main())
