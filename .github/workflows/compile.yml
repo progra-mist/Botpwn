@@ -5,11 +5,9 @@ on:
   workflow_dispatch:
     inputs:
       request_id:
-        description: "ID запроса"
         required: true
         type: string
       source_dir:
-        description: "Папка с исходниками"
         required: true
         type: string
 
@@ -36,7 +34,19 @@ jobs:
         run: |
           $url = "https://github.com/pawn-lang/compiler/releases/download/v3.10.10/pawnc-3.10.10-windows.zip"
           Invoke-WebRequest -Uri $url -OutFile "pawnc.zip"
-          Expand-Archive -Path "pawnc.zip" -DestinationPath "C:\pawnc"
+          
+          if (-not (Test-Path "pawnc.zip")) {
+            Write-Error "Не удалось скачать pawnc.zip"
+            exit 1
+          }
+          
+          Expand-Archive -Path "pawnc.zip" -DestinationPath "C:\pawnc" -Force
+          
+          if (-not (Test-Path "C:\pawnc\bin\pawncc.exe")) {
+            Write-Error "pawncc.exe не найден в C:\pawnc\bin"
+            exit 1
+          }
+          
           Remove-Item "pawnc.zip"
 
       - name: Compile
@@ -70,13 +80,9 @@ jobs:
           
           echo === ИНКЛЮДЫ: %INC_DIR% ===
           
-          :: Добавляем путь к папке include в корне репозитория
-          set ROOT_INC=%GITHUB_WORKSPACE%\include
-          
           pawncc.exe "%MAIN_PWN%" ^
             "-o%GITHUB_WORKSPACE%\Crime" ^
             "-i%INC_DIR%" ^
-            "-i%ROOT_INC%" ^
             "-iC:\pawnc\include" ^
             -d3 -;+ -(
             
