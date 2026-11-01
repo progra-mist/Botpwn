@@ -28,15 +28,16 @@ jobs:
             Set-ExecutionPolicy Bypass -Scope Process -Force
             [System.Net.ServicePointManager]::SecurityProtocol = `
               [System.Net.ServicePointManager]::SecurityProtocol -bor 3072
-            Invoke-Expression `
-              ((New-Object System.Net.WebClient).DownloadString(
+            Invoke-Expression (
+              (New-Object System.Net.WebClient).DownloadString(
                 "https://community.chocolatey.org/install.ps1"
-              ))
+              )
+            )
           }
 
           choco install vcredist2010 vcredist2015 -y --no-progress
           if ($LASTEXITCODE -ne 0) {
-            throw "Не удалось установить VC++ Redistributable через Chocolatey."
+            throw "Failed to install VC++ Redistributable."
           }
 
       - name: Download and set up Pawn compiler
@@ -52,12 +53,13 @@ jobs:
           $standardInclude = Join-Path $root "include"
 
           Remove-Item $root, $stage, $zip -Recurse -Force -ErrorAction SilentlyContinue
-          New-Item -ItemType Directory -Path $root, $stage, $bin | Out-Null
+          New-Item -ItemType Directory -Path $root, $stage, $bin, $standardInclude |
+            Out-Null
 
           Invoke-WebRequest -Uri $url -OutFile $zip
           if (-not (Test-Path -LiteralPath $zip) -or
               (Get-Item -LiteralPath $zip).Length -eq 0) {
-            throw "Архив Pawn не скачался или пуст."
+            throw "Pawn compiler archive is missing or empty."
           }
 
           Expand-Archive -LiteralPath $zip -DestinationPath $stage -Force
@@ -67,14 +69,14 @@ jobs:
             Select-Object -First 1
 
           if (-not $compiler) {
-            throw "В архиве не найден pawncc.exe."
+            throw "pawncc.exe was not found in the downloaded archive."
           }
 
-          # Кладём содержимое каталога компилятора непосредственно в C:\pawnc\bin.
+          # Copy the compiler and its neighboring files to C:\pawnc\bin.
           Get-ChildItem -LiteralPath $compiler.DirectoryName -Force |
             Copy-Item -Destination $bin -Recurse -Force
 
-          # Некоторые сборки содержат pawnc.dll не рядом с pawncc.exe.
+          # If pawnc.dll is elsewhere in the archive, copy it next to pawncc.exe.
           $dll = Get-ChildItem -LiteralPath $stage `
             -Filter "pawnc.dll" -File -Recurse |
             Select-Object -First 1
@@ -86,46 +88,65 @@ jobs:
           }
 
           $pawnccInBin = Join-Path $bin "pawncc.exe"
-          if (-not (Test-Path -LiteralPath $pawnccInBin)) {
-            throw "Не удалось скопировать pawncc.exe в $bin."
+          if (-not (Test-Path -LiteralPath $pawnccInBin -PathType Leaf)) {
+            throw "Failed to place pawncc.exe in $bin."
           }
 
-          if (-not (Test-Path -LiteralPath (Join-Path $bin "pawnc.dll"))) {
-            throw "pawnc.dll не найден рядом с pawncc.exe и в архиве."
-          }
-
-          # Ищем include в распакованном архиве и приводим его к стандартному пути.
+          # Copy the contents of any include directory found in the compiler archive.
           $packageInclude = Get-ChildItem -LiteralPath $stage `
             -Directory -Recurse |
             Where-Object { $_.Name -ieq "include" } |
-            Sort-Object { $_.FullName.Length } |
             Select-Object -First 1
 
           if ($packageInclude) {
-            Copy-Item -LiteralPath $packageInclude.FullName `
-              -Destination $standardInclude -Recurse -Force
+            Get-ChildItem -LiteralPath $packageInclude.FullName -Force |
+              Copy-Item -Destination $standardInclude -Recurse -Force
           }
-          else {
-            # Запасной вариант: include в корне checkout-репозитория.
-            $repoInclude = Join-Path $env:GITHUB_WORKSPACE "include"
-            if (Test-Path -LiteralPath $repoInclude -PathType Container) {
-              Copy-Item -LiteralPath $repoInclude `
-                -Destination $standardInclude -Recurse -Force
+
+          # Install SA-MP includes if a_samp.inc is not already present.
+          $aSampInc = Get-ChildItem -LiteralPath $standardInclude `
+            -Filter "a_samp.inc" -File -Recurse |
+            Select-Object -First 1
+
+          if (-not $aSampInc) {
+            Write-Host "a_samp.inc not found; downloading SA-MP includes."
+
+            $sampUrl = "https://github.com/pawn-lang/samp-include/archive/refs/heads/master.zip"
+            $sampZip = Join-Path $env:RUNNER_TEMP "samp-include.zip"
+            $sampStage = Join-Path $env:RUNNER_TEMP "samp-include-extracted"
+
+            Remove-Item $sampZip, $sampStage `
+              -Recurse -Force -ErrorAction SilentlyContinue
+            New-Item -ItemType Directory -Path $sampStage | Out-Null
+
+            Invoke-WebRequest -Uri $sampUrl -OutFile $sampZip
+            Expand-Archive -LiteralPath $sampZip `
+              -DestinationPath $sampStage -Force
+
+            $aSampInc = Get-ChildItem -LiteralPath $sampStage `
+              -Filter "a_samp.inc" -File -Recurse |
+              Select-Object -First 1
+
+            if (-not $aSampInc) {
+              throw "a_samp.inc was not found in the SA-MP includes archive."
             }
+
+            # Copy all files from the directory containing a_samp.inc.
+            Get-ChildItem -LiteralPath $aSampInc.DirectoryName -Force |
+              Copy-Item -Destination $standardInclude -Recurse -Force
           }
 
-          if (-not (Test-Path -LiteralPath $standardInclude -PathType Container)) {
-            throw "Папка include не найдена ни в архиве компилятора, ни в репозитории."
+          if (-not (Test-Path -LiteralPath (Join-Path $standardInclude "a_samp.inc"))) {
+            throw "Standard include setup failed: a_samp.inc is still missing."
           }
 
-          Write-Host "pawncc: $pawnccInBin"
-          Write-Host "pawnc.dll: $(Join-Path $bin 'pawnc.dll')"
-          Write-Host "include: $standardInclude"
+          Write-Host "Compiler: $pawnccInBin"
+          Write-Host "Standard includes: $standardInclude"
+          Write-Host "Verified a_samp.inc."
 
       - name: Find source and compile
         shell: powershell
         env:
-          REQUEST_ID: ${{ inputs.request_id }}
           SOURCE_DIR: ${{ inputs.source_dir }}
         run: |
           $ErrorActionPreference = "Stop"
@@ -140,17 +161,16 @@ jobs:
             $workspacePrefix,
             [System.StringComparison]::OrdinalIgnoreCase
           )) {
-            throw "source_dir должен находиться внутри workspace."
+            throw "SOURCE_DIR must point inside GITHUB_WORKSPACE."
           }
 
           if (-not (Test-Path -LiteralPath $sourcePath -PathType Container)) {
-            throw "Папка исходников не найдена: $sourcePath"
+            throw "Source directory not found: $sourcePath"
           }
 
-          # Исключаем .pwn-файлы, лежащие в папках include.
           $pwnFiles = @(
-            Get-ChildItem -LiteralPath $sourcePath -Filter "*.pwn" `
-              -File -Recurse |
+            Get-ChildItem -LiteralPath $sourcePath `
+              -Filter "*.pwn" -File -Recurse |
               Where-Object {
                 $_.FullName -notmatch '[\\/]+include[\\/]+'
               } |
@@ -158,53 +178,68 @@ jobs:
           )
 
           if ($pwnFiles.Count -eq 0) {
-            throw "В $sourcePath не найден главный .pwn-файл вне папок include."
+            throw "No .pwn files found outside include directories."
           }
 
           if ($pwnFiles.Count -gt 1) {
-            Write-Warning "Найдено несколько .pwn-файлов; выбран первый: $($pwnFiles[0].FullName)"
-            $pwnFiles | ForEach-Object { Write-Host "Кандидат: $($_.FullName)" }
+            Write-Warning "Multiple .pwn files found. Using the first alphabetically:"
+            $pwnFiles | ForEach-Object { Write-Host "  $($_.FullName)" }
           }
 
           $mainPwn = $pwnFiles[0].FullName
           $pawncc = "C:\pawnc\bin\pawncc.exe"
           $standardInclude = "C:\pawnc\include"
+          $amxBase = Join-Path $workspace "Crime"
           $amxPath = Join-Path $workspace "Crime.amx"
-          $amxBase = [System.IO.Path]::Combine($workspace, "Crime")
 
-          # Если в папке исходников есть свой include, добавляем и его.
-          $sourceIncludes = @(
-            Get-ChildItem -LiteralPath $sourcePath -Directory -Recurse |
-              Where-Object { $_.Name -ieq "include" } |
-              Sort-Object { $_.FullName.Length } |
-              Select-Object -ExpandProperty FullName
+          # Include the source root, folders named include, and every folder
+          # that actually contains an .inc file.
+          $includeDirs = [System.Collections.Generic.List[string]]::new()
+          $includeDirs.Add($sourcePath)
+
+          Get-ChildItem -LiteralPath $sourcePath `
+            -Filter "*.inc" -File -Recurse |
+            ForEach-Object {
+              $includeDirs.Add($_.DirectoryName)
+            }
+
+          Get-ChildItem -LiteralPath $sourcePath -Directory -Recurse |
+            Where-Object { $_.Name -ieq "include" } |
+            ForEach-Object {
+              $includeDirs.Add($_.FullName)
+            }
+
+          Get-ChildItem -LiteralPath $standardInclude `
+            -Filter "*.inc" -File -Recurse |
+            ForEach-Object {
+              $includeDirs.Add($_.DirectoryName)
+            }
+
+          $includeDirs = @(
+            $includeDirs |
+              Where-Object { Test-Path -LiteralPath $_ -PathType Container } |
+              Sort-Object -Unique
           )
 
-          $includeArgs = @()
-          foreach ($includeDir in $sourceIncludes) {
-            $includeArgs += "-i$includeDir"
-          }
+          $includeArgs = @(
+            $includeDirs | ForEach-Object { "-i$_" }
+          )
 
-          if (-not ($sourceIncludes -contains $standardInclude)) {
-            $includeArgs += "-i$standardInclude"
-          }
+          Write-Host "Compiling: $mainPwn"
+          Write-Host "Include directories:"
+          $includeDirs | ForEach-Object { Write-Host "  $_" }
 
-          Write-Host "Компилируется: $mainPwn"
-          Write-Host "Выходной файл: $amxPath"
-          Write-Host "Include-пути: $($includeArgs -join '; ')"
-
-          # Вызов по полному пути: текущая папка не имеет значения.
           & $pawncc $mainPwn "-o$amxBase" @includeArgs "-d3"
 
           if ($LASTEXITCODE -ne 0) {
-            throw "pawncc завершился с кодом $LASTEXITCODE."
+            throw "pawncc failed with exit code $LASTEXITCODE."
           }
 
           if (-not (Test-Path -LiteralPath $amxPath -PathType Leaf)) {
-            throw "Компилятор завершился без ошибки, но Crime.amx не создан."
+            throw "Crime.amx was not created."
           }
 
-          Write-Host "Успешно создан: $amxPath"
+          Write-Host "Compilation succeeded: $amxPath"
 
       - name: Upload Crime.amx
         uses: actions/upload-artifact@v4
